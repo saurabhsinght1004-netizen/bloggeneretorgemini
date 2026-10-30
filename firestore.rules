@@ -1,0 +1,85 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Connection test rule
+    match /test/{docId} {
+      allow read: if true;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isTenantMember(tenantId) {
+      return isSignedIn() && (
+        tenantId == ('tenant-' + request.auth.uid) ||
+        (exists(/databases/$(database)/documents/tenants/$(tenantId)) && (
+          request.auth.uid == get(/databases/$(database)/documents/tenants/$(tenantId)).data.ownerId ||
+          get(/databases/$(database)/documents/tenants/$(tenantId)).data.members[request.auth.uid] != null
+        ))
+      );
+    }
+
+    // Users Collection & User ID automatic persistence
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isOwner(userId);
+
+      // Projects saved for this specific user ID
+      match /projects/{projectId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Generation sessions saved for this specific user ID
+      match /sessions/{sessionId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Usage records saved for this specific user ID
+      match /usageRecords/{recordId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // User preferences & settings
+      match /preferences/{prefId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /{allUserPaths=**} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // Tenants (Workspaces) Collection
+    match /tenants/{tenantId} {
+      allow create: if isSignedIn() && request.resource.data.ownerId == request.auth.uid;
+      allow read: if isSignedIn() && (
+        resource.data.ownerId == request.auth.uid ||
+        resource.data.members[request.auth.uid] != null
+      );
+      allow update: if isSignedIn() && (
+        resource.data.ownerId == request.auth.uid ||
+        resource.data.members[request.auth.uid] in ['owner', 'admin']
+      );
+      allow delete: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+
+      // Subcollections scoped to Tenant
+      match /projects/{projectId} {
+        allow read, write: if isTenantMember(tenantId);
+      }
+
+      match /sessions/{sessionId} {
+        allow read, write: if isTenantMember(tenantId);
+      }
+
+      match /usageRecords/{recordId} {
+        allow read, write: if isTenantMember(tenantId);
+      }
+    }
+  }
+}

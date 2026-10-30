@@ -1,0 +1,1185 @@
+import React, { useState, useEffect } from 'react';
+import { Project, RunSession, StepOutputRecord, ChatMessage, TokenUsage } from '../types/pipeline';
+import {
+  interpolatePrompt,
+  calculateGeminiCost,
+  recordTokenUsage,
+  getDailyTokenUsage,
+  recordProjectRunUsage,
+  DailyTokenLog,
+} from '../utils/pipeline';
+import { MarkdownRenderer } from './MarkdownRenderer';
+import {
+  Play,
+  RotateCcw,
+  Sparkles,
+  Send,
+  CheckCircle2,
+  Clock,
+  Edit2,
+  Save,
+  MessageSquare,
+  ArrowRight,
+  BookOpen,
+  AlertCircle,
+  HelpCircle,
+  FileText,
+  Sliders,
+  ChevronRight,
+  Check,
+  RefreshCw,
+  Coins,
+  Zap,
+} from 'lucide-react';
+
+interface ExecutionStudioProps {
+  project: Project;
+  currentSession: RunSession;
+  onUpdateSession: (session: RunSession) => void;
+  onViewFinalBlog: () => void;
+}
+
+export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
+  project,
+  currentSession,
+  onUpdateSession,
+  onViewFinalBlog,
+}) => {
+  const [inputTopic, setInputTopic] = useState(currentSession.userInput || '');
+  const [selectedStepId, setSelectedStepId] = useState<string>(
+    project.steps[0]?.id || ''
+  );
+  const [isEditingOutput, setIsEditingOutput] = useState(false);
+  const [editedText, setEditedText] = useState('');
+  const [chatInput, setChatInput] = useState('');
+  const [isChatSubmitting, setIsChatSubmitting] = useState(false);
+  const [showPromptSent, setShowPromptSent] = useState(false);
+
+  const activeSteps = project.steps.filter((s) => s.isEnabled);
+
+  const isMedicalProject =
+    project.tags?.some((t) => /medical|clinic|prostate|health/i.test(t)) ||
+    /prostate|clinic|medical|health/i.test(project.name);
+
+  // Quick suggestions for easy testing matching user references
+  const sampleTopics = isMedicalProject
+    ? [
+        'Why Does Prostatitis Keep Coming Back?',
+        'Prostatitis in Younger Men: Why Does It Happen and Is It Different?',
+        'Does Prostatitis Increase Your Risk of Prostate Cancer?',
+        'Antibiotics for Prostatitis: How Long Do They Take to Work and When Do They Not Help?',
+        'Bacterial vs Non-Bacterial Prostatitis: What’s the Difference?',
+        'Mindfulness and Pelvic Floor Relaxation for Chronic Pelvic Pain Syndrome (CP/CPPS)',
+      ]
+    : [
+        'Why Rust and WebAssembly are revolutionizing Cloud Infrastructure in 2026',
+        'The rise of Autonomous AI Coding Agents: Developer Playbook & Trade-offs',
+        'Modern Distributed Database Architectures: From Raft to Serverless Scale',
+        'How to build resilient Microservices with Event-Driven Choreography',
+      ];
+
+  const [dailyTokens, setDailyTokens] = useState<DailyTokenLog>(() => getDailyTokenUsage());
+
+  const computeSessionTokens = (outputs: Record<string, StepOutputRecord>): TokenUsage => {
+    let promptTokens = 0;
+    let candidatesTokens = 0;
+    Object.values(outputs).forEach((record) => {
+      if (record.status === 'completed') {
+        if (record.tokenUsage) {
+          promptTokens += record.tokenUsage.promptTokens;
+          candidatesTokens += record.tokenUsage.candidatesTokens;
+        } else if (record.output) {
+          const estPrompt = Math.round((record.promptSent?.length || 600) / 4);
+          const estCandidates = Math.round(record.output.length / 4);
+          promptTokens += estPrompt;
+          candidatesTokens += estCandidates;
+        }
+      }
+    });
+    const totalTokens = promptTokens + candidatesTokens;
+    return {
+      promptTokens,
+      candidatesTokens,
+      totalTokens,
+      estimatedCostUsd: calculateGeminiCost(promptTokens, candidatesTokens),
+    };
+  };
+
+  // Helper to execute a single step with automatic retry on timeout or network errors
+  const executeStep = async (
+    stepIndex: number,
+    topic: string,
+    existingOutputs: Record<string, StepOutputRecord>
+  ): Promise<{ output: string; usage?: TokenUsage; error?: string }> => {
+    const step = activeSteps[stepIndex];
+    if (!step) return { output: '', error: 'Step not found' };
+
+    // Determine previous step output
+    let prevOutput = '';
+    if (stepIndex > 0) {
+      const prevStep = activeSteps[stepIndex - 1];
+      prevOutput = existingOutputs[prevStep.id]?.output || '';
+    }
+
+    // Build variables
+    const variables: Record<string, string> = {
+      user_input: topic,
+      previous_step_output: prevOutput,
+      project_name: project.name,
+      project_audience: project.targetAudience,
+      project_tone: project.tone,
+      project_word_count: String(project.targetWordCount),
+    };
+
+    // Also inject specific step outputs if referenced like step_1_output
+    activeSteps.forEach((s, idx) => {
+      if (existingOutputs[s.id]?.output) {
+        variables[`step_${idx + 1}_output`] = existingOutputs[s.id].output;
+      }
+    });
+
+    const compiledPrompt = interpolatePrompt(step.promptTemplate, variables);
+
+    // Call server API with 1 automatic retry on timeout or 504
+    let attempts = 0;
+    let lastError = '';
+
+    while (attempts < 2) {
+      attempts++;
+      try {
+        const response = await fetch('/api/generate-step', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: compiledPrompt,
+            systemInstruction: `You are acting as: ${step.systemRole}. Always output clean, professional content adhering to the instructions.`,
+            temperature: step.temperature,
+          }),
+        });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          const errMsg =
+            errData.error ||
+            (response.status === 504
+              ? 'HTTP 504 Gateway Timeout: AI server took longer than expected to process this step. Please click "Retry Step" below.'
+              : `HTTP error ${response.status}`);
+
+          if (attempts < 2 && (response.status === 504 || response.status === 502 || response.status === 503)) {
+            // Wait 1.5s before retry
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+            continue;
+          }
+          throw new Error(errMsg);
+        }
+
+        const data = await response.json();
+        const text = data.text || '';
+        const promptTokens = data.usage?.promptTokens || Math.round(compiledPrompt.length / 4);
+        const candidatesTokens = data.usage?.candidatesTokens || Math.round(text.length / 4);
+        const totalTokens = data.usage?.totalTokens || (promptTokens + candidatesTokens);
+        const usage: TokenUsage = {
+          promptTokens,
+          candidatesTokens,
+          totalTokens,
+          estimatedCostUsd: calculateGeminiCost(promptTokens, candidatesTokens),
+        };
+        const updatedDaily = recordTokenUsage(usage);
+        setDailyTokens(updatedDaily);
+
+        recordProjectRunUsage({
+          projectId: project.id,
+          projectName: project.name,
+          date: new Date().toISOString().slice(0, 10),
+          timestamp: new Date().toISOString(),
+          promptTokens,
+          candidatesTokens,
+          totalTokens,
+          estimatedCostUsd: usage.estimatedCostUsd || 0,
+          sessionTopic: topic,
+          stepsCompleted: stepIndex + 1,
+        });
+
+        return { output: text, usage };
+      } catch (err: any) {
+        lastError = err.message || 'Execution error';
+        if (attempts < 2) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          continue;
+        }
+        throw new Error(lastError);
+      }
+    }
+
+    return { output: '', error: lastError };
+  };
+
+  // Run or retry a single step directly
+  const handleRunSingleStep = async (stepId: string) => {
+    if (!inputTopic.trim()) {
+      alert('Please enter a topic or input notes to start.');
+      return;
+    }
+
+    const stepIndex = activeSteps.findIndex((s) => s.id === stepId);
+    if (stepIndex === -1) return;
+    const currentStep = activeSteps[stepIndex];
+
+    const updatedOutputs = {
+      ...currentSession.stepOutputs,
+      [currentStep.id]: {
+        stepId: currentStep.id,
+        stepTitle: currentStep.title,
+        promptSent: 'Executing step...',
+        output: '',
+        status: 'running' as const,
+        startedAt: new Date().toISOString(),
+        error: undefined,
+      },
+    };
+
+    onUpdateSession({
+      ...currentSession,
+      userInput: inputTopic,
+      status: 'running',
+      stepOutputs: updatedOutputs,
+    });
+
+    try {
+      const result = await executeStep(stepIndex, inputTopic, updatedOutputs);
+
+      const completedOutputs: Record<string, StepOutputRecord> = {
+        ...updatedOutputs,
+        [currentStep.id]: {
+          ...updatedOutputs[currentStep.id],
+          output: result.output,
+          status: 'completed' as const,
+          completedAt: new Date().toISOString(),
+          tokenUsage: result.usage,
+          error: undefined,
+        },
+      };
+
+      const finalStep = activeSteps.find((s) => s.isFinalBlogStep) || activeSteps[activeSteps.length - 1];
+      const finalBlogContent = completedOutputs[finalStep.id]?.output;
+      const allCompleted = activeSteps.every((s) => completedOutputs[s.id]?.status === 'completed');
+
+      onUpdateSession({
+        ...currentSession,
+        userInput: inputTopic,
+        status: allCompleted ? 'completed' : 'paused',
+        stepOutputs: completedOutputs,
+        finalBlog: finalBlogContent || currentSession.finalBlog,
+        totalTokens: computeSessionTokens(completedOutputs),
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      console.error('Single step execution error:', err);
+      onUpdateSession({
+        ...currentSession,
+        status: 'failed',
+        stepOutputs: {
+          ...updatedOutputs,
+          [currentStep.id]: {
+            ...updatedOutputs[currentStep.id],
+            status: 'failed',
+            error: err.message,
+          },
+        },
+      });
+    }
+  };
+
+  // Resume the pipeline from the first incomplete or failed step
+  const handleResumePipeline = async () => {
+    if (!inputTopic.trim()) {
+      alert('Please enter a topic or input notes to start.');
+      return;
+    }
+
+    // Find the first step that is not completed
+    const resumeIndex = activeSteps.findIndex((s) => {
+      const out = currentSession.stepOutputs[s.id];
+      return !out || out.status !== 'completed';
+    });
+
+    if (resumeIndex === -1) {
+      handleRunAllSteps();
+      return;
+    }
+
+    let localOutputs = { ...currentSession.stepOutputs };
+
+    onUpdateSession({
+      ...currentSession,
+      userInput: inputTopic,
+      status: 'running',
+      currentStepIndex: resumeIndex,
+    });
+
+    for (let i = resumeIndex; i < activeSteps.length; i++) {
+      const step = activeSteps[i];
+      setSelectedStepId(step.id);
+
+      localOutputs[step.id] = {
+        stepId: step.id,
+        stepTitle: step.title,
+        promptSent: 'Executing step...',
+        output: '',
+        status: 'running',
+        startedAt: new Date().toISOString(),
+        error: undefined,
+      };
+
+      onUpdateSession({
+        ...currentSession,
+        userInput: inputTopic,
+        currentStepIndex: i,
+        status: 'running',
+        stepOutputs: { ...localOutputs },
+      });
+
+      try {
+        const result = await executeStep(i, inputTopic, localOutputs);
+        localOutputs[step.id] = {
+          ...localOutputs[step.id],
+          output: result.output,
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+          tokenUsage: result.usage,
+          error: undefined,
+        };
+
+        const finalStep = activeSteps.find((s) => s.isFinalBlogStep) || activeSteps[activeSteps.length - 1];
+        const deliveredBlog = localOutputs[finalStep.id]?.output;
+
+        onUpdateSession({
+          ...currentSession,
+          userInput: inputTopic,
+          currentStepIndex: i + 1,
+          status: i + 1 >= activeSteps.length ? 'completed' : 'running',
+          stepOutputs: { ...localOutputs },
+          finalBlog: deliveredBlog || currentSession.finalBlog,
+          totalTokens: computeSessionTokens(localOutputs),
+          updatedAt: new Date().toISOString(),
+        });
+      } catch (err: any) {
+        console.error('Pipeline failed at step:', step.title, err);
+        localOutputs[step.id] = {
+          ...localOutputs[step.id],
+          status: 'failed',
+          error: err.message,
+        };
+        onUpdateSession({
+          ...currentSession,
+          status: 'failed',
+          stepOutputs: { ...localOutputs },
+        });
+        return;
+      }
+    }
+  };
+
+  // Run next single step
+  const handleRunNextStep = async () => {
+    if (!inputTopic.trim()) {
+      alert('Please enter a topic or input notes to start.');
+      return;
+    }
+
+    // Find first uncompleted step or use current index
+    let targetIndex = activeSteps.findIndex((s) => currentSession.stepOutputs[s.id]?.status !== 'completed');
+    if (targetIndex === -1) targetIndex = currentSession.currentStepIndex;
+    if (targetIndex >= activeSteps.length) return;
+
+    const currentStep = activeSteps[targetIndex];
+
+    // Mark running
+    const updatedOutputs = {
+      ...currentSession.stepOutputs,
+      [currentStep.id]: {
+        stepId: currentStep.id,
+        stepTitle: currentStep.title,
+        promptSent: 'Compiling...',
+        output: '',
+        status: 'running' as const,
+        startedAt: new Date().toISOString(),
+        error: undefined,
+      },
+    };
+
+    onUpdateSession({
+      ...currentSession,
+      userInput: inputTopic,
+      status: 'running',
+      stepOutputs: updatedOutputs,
+    });
+
+    setSelectedStepId(currentStep.id);
+
+    try {
+      const result = await executeStep(targetIndex, inputTopic, updatedOutputs);
+
+      const completedOutputs: Record<string, StepOutputRecord> = {
+        ...updatedOutputs,
+        [currentStep.id]: {
+          ...updatedOutputs[currentStep.id],
+          output: result.output,
+          status: 'completed' as const,
+          completedAt: new Date().toISOString(),
+          tokenUsage: result.usage,
+          error: undefined,
+        },
+      };
+
+      const nextIndex = targetIndex + 1;
+      const isFinished = nextIndex >= activeSteps.length;
+
+      // Check if this step or final step delivers the blog
+      const finalStep = activeSteps.find((s) => s.isFinalBlogStep) || activeSteps[activeSteps.length - 1];
+      const finalBlogContent = completedOutputs[finalStep.id]?.output;
+
+      onUpdateSession({
+        ...currentSession,
+        userInput: inputTopic,
+        currentStepIndex: nextIndex,
+        status: isFinished ? 'completed' : 'paused',
+        stepOutputs: completedOutputs,
+        finalBlog: finalBlogContent || currentSession.finalBlog,
+        totalTokens: computeSessionTokens(completedOutputs),
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      console.error('Step execution error:', err);
+      onUpdateSession({
+        ...currentSession,
+        status: 'failed',
+        stepOutputs: {
+          ...updatedOutputs,
+          [currentStep.id]: {
+            ...updatedOutputs[currentStep.id],
+            status: 'failed',
+            error: err.message,
+          },
+        },
+      });
+    }
+  };
+
+  // Run all remaining steps sequentially
+  const handleRunAllSteps = async () => {
+    if (!inputTopic.trim()) {
+      alert('Please enter a topic or input notes to start.');
+      return;
+    }
+
+    let localOutputs = { ...currentSession.stepOutputs };
+    let startIndex = currentSession.currentStepIndex;
+
+    // If already finished, restart from 0
+    if (startIndex >= activeSteps.length) {
+      startIndex = 0;
+      localOutputs = {};
+    }
+
+    onUpdateSession({
+      ...currentSession,
+      userInput: inputTopic,
+      status: 'running',
+      currentStepIndex: startIndex,
+    });
+
+    for (let i = startIndex; i < activeSteps.length; i++) {
+      const step = activeSteps[i];
+      setSelectedStepId(step.id);
+
+      localOutputs[step.id] = {
+        stepId: step.id,
+        stepTitle: step.title,
+        promptSent: 'Executing step...',
+        output: '',
+        status: 'running',
+        startedAt: new Date().toISOString(),
+        error: undefined,
+      };
+
+      onUpdateSession({
+        ...currentSession,
+        userInput: inputTopic,
+        currentStepIndex: i,
+        status: 'running',
+        stepOutputs: { ...localOutputs },
+      });
+
+      try {
+        const result = await executeStep(i, inputTopic, localOutputs);
+        localOutputs[step.id] = {
+          ...localOutputs[step.id],
+          output: result.output,
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+          tokenUsage: result.usage,
+          error: undefined,
+        };
+
+        const finalStep = activeSteps.find((s) => s.isFinalBlogStep) || activeSteps[activeSteps.length - 1];
+        const deliveredBlog = localOutputs[finalStep.id]?.output;
+
+        onUpdateSession({
+          ...currentSession,
+          userInput: inputTopic,
+          currentStepIndex: i + 1,
+          status: i + 1 >= activeSteps.length ? 'completed' : 'running',
+          stepOutputs: { ...localOutputs },
+          finalBlog: deliveredBlog || currentSession.finalBlog,
+          totalTokens: computeSessionTokens(localOutputs),
+          updatedAt: new Date().toISOString(),
+        });
+      } catch (err: any) {
+        console.error('Pipeline failed at step:', step.title, err);
+        localOutputs[step.id] = {
+          ...localOutputs[step.id],
+          status: 'failed',
+          error: err.message,
+        };
+        onUpdateSession({
+          ...currentSession,
+          status: 'failed',
+          stepOutputs: { ...localOutputs },
+        });
+        return;
+      }
+    }
+  };
+
+  // Chat refinement on current selected step
+  const handleChatRefine = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim() || isChatSubmitting) return;
+
+    const currentOutputRecord = currentSession.stepOutputs[selectedStepId];
+    if (!currentOutputRecord || !currentOutputRecord.output) {
+      alert('Please run this step first to generate output before refining it.');
+      return;
+    }
+
+    const stepObj = activeSteps.find((s) => s.id === selectedStepId);
+    const userMsg = chatInput.trim();
+    setChatInput('');
+    setIsChatSubmitting(true);
+
+    const userChatMessage: ChatMessage = {
+      id: `chat-${Date.now()}`,
+      role: 'user',
+      content: userMsg,
+      timestamp: new Date().toISOString(),
+      stepId: selectedStepId,
+    };
+
+    const newChatList = [...currentSession.chatMessages, userChatMessage];
+    onUpdateSession({
+      ...currentSession,
+      chatMessages: newChatList,
+    });
+
+    try {
+      const response = await fetch('/api/chat-refine', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          stepTitle: stepObj?.title || 'Current Step',
+          currentOutput: currentOutputRecord.output,
+          userMessage: userMsg,
+          systemRole: stepObj?.systemRole || 'Editor',
+        }),
+      });
+
+      const data = await response.json();
+
+      const assistantChatMessage: ChatMessage = {
+        id: `chat-${Date.now() + 1}`,
+        role: 'assistant',
+        content: data.reply || 'Refinement complete.',
+        timestamp: new Date().toISOString(),
+        stepId: selectedStepId,
+      };
+
+      const updatedOutputs: Record<string, StepOutputRecord> = {
+        ...currentSession.stepOutputs,
+        [selectedStepId]: {
+          ...currentOutputRecord,
+          output: data.updatedContent || currentOutputRecord.output,
+        },
+      };
+
+      // If this was the final blog step, update finalBlog as well
+      const isFinal = stepObj?.isFinalBlogStep;
+
+      onUpdateSession({
+        ...currentSession,
+        stepOutputs: updatedOutputs,
+        finalBlog: isFinal ? data.updatedContent : currentSession.finalBlog,
+        chatMessages: [...newChatList, assistantChatMessage],
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      console.error('Chat refinement error:', err);
+      alert('Refinement failed: ' + err.message);
+    } finally {
+      setIsChatSubmitting(false);
+    }
+  };
+
+  const handleSaveDirectEdit = () => {
+    const currentRecord = currentSession.stepOutputs[selectedStepId];
+    if (!currentRecord) return;
+
+    const updatedOutputs = {
+      ...currentSession.stepOutputs,
+      [selectedStepId]: {
+        ...currentRecord,
+        output: editedText,
+      },
+    };
+
+    const stepObj = activeSteps.find((s) => s.id === selectedStepId);
+    const isFinal = stepObj?.isFinalBlogStep;
+
+    onUpdateSession({
+      ...currentSession,
+      stepOutputs: updatedOutputs,
+      finalBlog: isFinal ? editedText : currentSession.finalBlog,
+      updatedAt: new Date().toISOString(),
+    });
+
+    setIsEditingOutput(false);
+  };
+
+  const handleResetSession = () => {
+    if (confirm('Reset this generation run and start fresh?')) {
+      onUpdateSession({
+        id: `run-${Date.now()}`,
+        projectId: project.id,
+        userInput: inputTopic,
+        status: 'idle',
+        currentStepIndex: 0,
+        stepOutputs: {},
+        chatMessages: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      setSelectedStepId(activeSteps[0]?.id || '');
+    }
+  };
+
+  const selectedStep = activeSteps.find((s) => s.id === selectedStepId) || activeSteps[0];
+  const selectedRecord = currentSession.stepOutputs[selectedStepId];
+  const isRunning = currentSession.status === 'running';
+  const isCompleted = currentSession.status === 'completed';
+  const hasFailedStep = Object.values(currentSession.stepOutputs).some((o) => o.status === 'failed');
+  const hasCompletedAny = Object.values(currentSession.stepOutputs).some((o) => o.status === 'completed');
+  const canResume = (hasFailedStep || (hasCompletedAny && !isCompleted)) && !isRunning;
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      {/* Input Header Panel */}
+      <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-indigo-500" />
+              <span>Project Chat & Generation Studio</span>
+            </h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Input your topic or source notes. The pipeline will process it sequentially across each configured step.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={handleResetSession}
+              title="Reset Run"
+              className="text-xs font-semibold px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset</span>
+            </button>
+
+            {canResume && (
+              <button
+                disabled={isRunning || !inputTopic.trim()}
+                onClick={handleResumePipeline}
+                className="text-xs font-semibold px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white shadow-sm flex items-center gap-1.5 transition-all shadow-amber-500/20 active:scale-95"
+                title="Resume pipeline execution from where it stopped"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Resume Pipeline</span>
+              </button>
+            )}
+
+            <button
+              disabled={isRunning || !inputTopic.trim()}
+              onClick={handleRunNextStep}
+              className={`text-xs font-semibold px-3.5 py-2 rounded-xl border transition-all flex items-center gap-1.5 ${
+                isRunning || !inputTopic.trim()
+                  ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 cursor-not-allowed'
+                  : 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-950/40'
+              }`}
+            >
+              <ChevronRight className="w-4 h-4" />
+              <span>Step-by-Step</span>
+            </button>
+
+            <button
+              disabled={isRunning || !inputTopic.trim()}
+              onClick={handleRunAllSteps}
+              className={`text-xs font-semibold px-4 py-2 rounded-xl text-white shadow-sm flex items-center gap-2 transition-all shadow-indigo-600/30 ${
+                isRunning || !inputTopic.trim()
+                  ? 'bg-indigo-400 cursor-not-allowed'
+                  : 'bg-indigo-600 hover:bg-indigo-700 hover:shadow active:scale-95'
+              }`}
+            >
+              <Play className="w-4 h-4 fill-white" />
+              <span>{isRunning ? 'Running Pipeline...' : isCompleted ? 'Re-Run All Steps' : 'Run All Steps'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Input Text Area */}
+        <div className="space-y-2">
+          <textarea
+            rows={2}
+            value={inputTopic}
+            onChange={(e) => setInputTopic(e.target.value)}
+            placeholder="Type your blog topic, core idea, outline notes, or brief here... (e.g., 'Why Rust and WebAssembly are revolutionizing Cloud Infrastructure in 2026')"
+            className="w-full text-sm px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/90 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed resize-y"
+          />
+
+          {/* Quick topic suggestion pills */}
+          <div className="flex flex-wrap items-center gap-1.5 pt-1">
+            <span className="text-[11px] font-semibold text-slate-400 mr-1">Suggestions:</span>
+            {sampleTopics.map((topic, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => setInputTopic(topic)}
+                className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-600 dark:hover:text-indigo-400 border border-slate-200 dark:border-slate-700 transition-colors"
+              >
+                {topic.split(':')[0]}
+              </button>
+            ))}
+          </div>
+
+          {/* Token Usage & Cost Status Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-100 dark:border-slate-800 text-xs">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <div className="flex items-center gap-1.5 font-medium bg-slate-50 dark:bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80 text-slate-700 dark:text-slate-300">
+                <Zap className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                <span className="text-slate-500 dark:text-slate-400">Blog Tokens:</span>
+                <span className="font-mono font-bold text-slate-900 dark:text-white">
+                  {(currentSession.totalTokens?.totalTokens || 0).toLocaleString()}
+                </span>
+                {Boolean(currentSession.totalTokens?.totalTokens) && (
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    ({(currentSession.totalTokens?.promptTokens || 0).toLocaleString()} in / {(currentSession.totalTokens?.candidatesTokens || 0).toLocaleString()} out)
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5 font-medium bg-emerald-50/80 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 px-3 py-1.5 rounded-xl border border-emerald-200/80 dark:border-emerald-800/60">
+                <Coins className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span className="text-emerald-600 dark:text-emerald-400">Est. Gemini Cost:</span>
+                <span className="font-mono font-bold">
+                  ${(currentSession.totalTokens?.estimatedCostUsd || calculateGeminiCost(currentSession.totalTokens?.promptTokens || 0, currentSession.totalTokens?.candidatesTokens || 0)).toFixed(4)}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1.5 font-medium bg-slate-50 dark:bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80 text-slate-500 dark:text-slate-400">
+                <Clock className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                <span>Today's Total:</span>
+                <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
+                  {(dailyTokens.totalTokens || 0).toLocaleString()} tokens
+                </span>
+                <span className="text-[10px] text-slate-400">
+                  (~${(dailyTokens.totalCostUsd || 0).toFixed(4)} • {dailyTokens.runsCount || 0} run{dailyTokens.runsCount === 1 ? '' : 's'})
+                </span>
+              </div>
+            </div>
+
+            <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
+              <span>Model:</span>
+              <span className="font-semibold text-slate-700 dark:text-slate-300">Gemini 3.8 Flash</span>
+              <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/50 text-[10px] font-mono font-bold text-emerald-700 dark:text-emerald-300">
+                Ultra-Low Cost
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Completion Banner */}
+      {isCompleted && currentSession.finalBlog && (
+        <div className="rounded-3xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 text-white p-6 shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0">
+              <CheckCircle2 className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold">All Pipeline Steps Finished Successfully!</h2>
+              <p className="text-xs text-emerald-100">
+                Your final polished blog post has been synthesized and delivered according to your project pipeline.
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={onViewFinalBlog}
+            className="shrink-0 bg-white text-indigo-700 hover:bg-slate-100 font-bold text-xs px-5 py-3 rounded-xl shadow-lg transition-all flex items-center gap-2 hover:scale-105 active:scale-95"
+          >
+            <BookOpen className="w-4 h-4" />
+            <span>View Delivered Blog &rarr;</span>
+          </button>
+        </div>
+      )}
+
+      {/* Step Stepper & Execution Progress Bar */}
+      <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            Pipeline Progress
+          </h2>
+          <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
+            {Object.values(currentSession.stepOutputs).filter((o) => o.status === 'completed').length} of{' '}
+            {activeSteps.length} Steps Completed
+          </span>
+        </div>
+
+        {/* Stepper Buttons */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
+          {activeSteps.map((step, idx) => {
+            const output = currentSession.stepOutputs[step.id];
+            const isSelected = selectedStepId === step.id;
+            const isStepRunning = output?.status === 'running';
+            const isStepCompleted = output?.status === 'completed';
+            const isStepFailed = output?.status === 'failed';
+
+            return (
+              <button
+                key={step.id}
+                onClick={() => setSelectedStepId(step.id)}
+                className={`p-3 rounded-2xl border text-left transition-all relative overflow-hidden flex flex-col justify-between h-24 ${
+                  isSelected
+                    ? 'border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/40 ring-2 ring-indigo-500/20'
+                    : isStepFailed
+                    ? 'border-rose-300 dark:border-rose-800 bg-rose-50/50 dark:bg-rose-950/30 hover:border-rose-400'
+                    : isStepCompleted
+                    ? 'border-emerald-200 dark:border-emerald-800/80 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700'
+                    : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 text-slate-400'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span
+                    className={`w-6 h-6 rounded-lg text-[11px] font-bold flex items-center justify-center ${
+                      isStepCompleted
+                        ? 'bg-emerald-500 text-white'
+                        : isStepRunning
+                        ? 'bg-indigo-600 text-white animate-spin'
+                        : isStepFailed
+                        ? 'bg-rose-600 text-white'
+                        : isSelected
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    {isStepCompleted ? (
+                      <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                    ) : isStepRunning ? (
+                      <RotateCcw className="w-3 h-3 animate-spin" />
+                    ) : isStepFailed ? (
+                      <AlertCircle className="w-3.5 h-3.5 stroke-[2.5]" />
+                    ) : (
+                      idx + 1
+                    )}
+                  </span>
+
+                  {step.isFinalBlogStep && (
+                    <span className="text-[9px] uppercase font-bold text-emerald-600 dark:text-emerald-400">
+                      Deliverable
+                    </span>
+                  )}
+                </div>
+
+                <div>
+                  <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 line-clamp-1">
+                    {step.title}
+                  </h3>
+                  <p
+                    className={`text-[10px] capitalize mt-0.5 ${
+                      isStepFailed
+                        ? 'text-rose-600 dark:text-rose-400 font-bold'
+                        : 'text-slate-500 dark:text-slate-400'
+                    }`}
+                  >
+                    {isStepRunning
+                      ? 'Running...'
+                      : isStepCompleted
+                      ? 'Completed'
+                      : isStepFailed
+                      ? 'Failed (Click to retry)'
+                      : 'Pending'}
+                  </p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Main Split View: Step Output & Interactive Refinement Chat */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Left Column: Output of Selected Step (7 Cols) */}
+        <div className="lg:col-span-7 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col min-h-[500px]">
+          {/* Header */}
+          <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 bg-slate-50/70 dark:bg-slate-950/40">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                  Step {activeSteps.findIndex((s) => s.id === selectedStep.id) + 1}:
+                </span>
+                <h3 className="font-bold text-sm text-slate-900 dark:text-white truncate">
+                  {selectedStep.title}
+                </h3>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                Role: {selectedStep.systemRole}
+              </p>
+            </div>
+
+            <div className="flex items-center space-x-2 shrink-0">
+              <button
+                disabled={isRunning || !inputTopic.trim()}
+                onClick={() => handleRunSingleStep(selectedStep.id)}
+                className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 bg-indigo-50/50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Run or re-run this specific step"
+              >
+                <Play className="w-3 h-3 fill-indigo-600 dark:fill-indigo-400" />
+                <span>
+                  {selectedRecord?.status === 'failed'
+                    ? 'Retry Step'
+                    : selectedRecord?.output
+                    ? 'Re-run Step'
+                    : 'Run This Step'}
+                </span>
+              </button>
+
+              {selectedRecord?.output && (
+                <>
+                  {isEditingOutput ? (
+                    <button
+                      onClick={handleSaveDirectEdit}
+                      className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white flex items-center gap-1 hover:bg-emerald-700 transition-colors"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Save Edit</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setEditedText(selectedRecord.output);
+                        setIsEditingOutput(true);
+                      }}
+                      className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      <span>Edit Output</span>
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Content Body */}
+          <div className="p-6 flex-1 overflow-y-auto">
+            {selectedRecord?.status === 'running' ? (
+              <div className="flex flex-col items-center justify-center py-16 space-y-4 text-center">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center animate-spin">
+                  <RotateCcw className="w-6 h-6" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">
+                    Executing {selectedStep.title}...
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm">
+                    Processing instructions through Gemini AI and synthesizing context from preceding steps.
+                  </p>
+                </div>
+              </div>
+            ) : selectedRecord?.status === 'failed' ? (
+              <div className="p-5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300 text-xs space-y-3">
+                <div className="flex items-center gap-2 font-bold text-sm text-rose-900 dark:text-rose-200">
+                  <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                  <span>Execution Failed for Step: {selectedStep.title}</span>
+                </div>
+
+                <div className="bg-white/80 dark:bg-slate-900/80 p-3 rounded-xl border border-rose-200/60 dark:border-rose-800/60 font-mono text-[11px] text-rose-700 dark:text-rose-400 whitespace-pre-wrap break-words">
+                  {selectedRecord.error || 'An unexpected error occurred during generation.'}
+                </div>
+
+                {selectedRecord.error?.includes('504') ? (
+                  <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-[11px] space-y-1">
+                    <p className="font-semibold">Why did this happen (HTTP 504 Gateway Timeout)?</p>
+                    <p>
+                      The server proxy timed out while waiting for the Gemini API call to return. We have added a server-side timeout watchdog, automatic retry, and fallback so your step won't get stuck.
+                    </p>
+                  </div>
+                ) : null}
+
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <button
+                    disabled={isRunning}
+                    onClick={() => handleRunSingleStep(selectedStep.id)}
+                    className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs shadow-sm flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Retry Step {activeSteps.findIndex((s) => s.id === selectedStep.id) + 1}</span>
+                  </button>
+
+                  <button
+                    disabled={isRunning}
+                    onClick={handleResumePipeline}
+                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-sm flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-white" />
+                    <span>Resume Full Pipeline</span>
+                  </button>
+                </div>
+              </div>
+            ) : selectedRecord?.output ? (
+              <div>
+                {isEditingOutput ? (
+                  <textarea
+                    rows={16}
+                    value={editedText}
+                    onChange={(e) => setEditedText(e.target.value)}
+                    className="w-full text-xs font-mono p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-900 text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed"
+                  />
+                ) : (
+                  <div className="prose prose-slate dark:prose-invert max-w-none">
+                    <MarkdownRenderer content={selectedRecord.output} />
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-16 text-center space-y-3">
+                <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center">
+                  <Clock className="w-6 h-6" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                    Step Not Executed Yet
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm">
+                    Click "Run All Steps" or "Step-by-Step" above to execute this prompt stage.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right Column: Interactive Chat & Refinement (5 Cols) */}
+        <div className="lg:col-span-5 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col h-[550px]">
+          {/* Chat Header */}
+          <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="w-4 h-4 text-indigo-500" />
+              <h3 className="font-bold text-sm text-slate-900 dark:text-white">
+                Chat & Refine Current Step
+              </h3>
+            </div>
+            <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 font-bold border border-indigo-200 dark:border-indigo-800">
+              Interactive
+            </span>
+          </div>
+
+          {/* Chat Messages Log */}
+          <div className="p-4 flex-1 overflow-y-auto space-y-3">
+            <div className="p-3 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/40 text-xs text-indigo-900 dark:text-indigo-300">
+              <p className="font-semibold mb-1 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" />
+                Ask for edits or adjustments:
+              </p>
+              <p className="text-[11px] text-indigo-700 dark:text-indigo-400">
+                You can chat directly with this step! Try saying:
+                <br />
+                &bull; <em>"Make this angle more contrarian"</em>
+                <br />
+                &bull; <em>"Add 2 more technical subsections to the outline"</em>
+                <br />
+                &bull; <em>"Sharpen the hook and tone"</em>
+              </p>
+            </div>
+
+            {currentSession.chatMessages
+              .filter((m) => !m.stepId || m.stepId === selectedStepId)
+              .map((msg) => (
+                <div
+                  key={msg.id}
+                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div
+                    className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs ${
+                      msg.role === 'user'
+                        ? 'bg-indigo-600 text-white rounded-br-none'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-bl-none border border-slate-200/80 dark:border-slate-700'
+                    }`}
+                  >
+                    <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                    <span
+                      className={`text-[9px] block text-right mt-1 ${
+                        msg.role === 'user' ? 'text-indigo-200' : 'text-slate-400'
+                      }`}
+                    >
+                      {new Date(msg.timestamp).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                  </div>
+                </div>
+              ))}
+          </div>
+
+          {/* Chat Input Box */}
+          <form
+            onSubmit={handleChatRefine}
+            className="p-3 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-2"
+          >
+            <input
+              type="text"
+              value={chatInput}
+              disabled={isChatSubmitting || !selectedRecord?.output}
+              onChange={(e) => setChatInput(e.target.value)}
+              placeholder={
+                selectedRecord?.output
+                  ? `Message to refine "${selectedStep.title}"...`
+                  : 'Run this step first to chat and refine...'
+              }
+              className="flex-1 text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-100 dark:disabled:bg-slate-800/40"
+            />
+
+            <button
+              type="submit"
+              disabled={isChatSubmitting || !chatInput.trim() || !selectedRecord?.output}
+              className="p-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white disabled:bg-slate-200 dark:disabled:bg-slate-800 disabled:text-slate-400 transition-colors shadow-sm"
+              title="Send refinement message"
+            >
+              <Send className="w-4 h-4" />
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+};

@@ -1,0 +1,6 @@
+{
+  "name": "BlogCraft Studio",
+  "description": "Multi-step prompt pipeline builder and interactive blog generator powered by Gemini AI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
