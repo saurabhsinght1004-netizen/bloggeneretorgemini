@@ -1,1 +1,215 @@
 @import "tailwindcss";
+
+/*
+  Minimal warm-monochrome theme.
+  Components keep their existing Tailwind colour names; the ramps below remap them:
+  slate -> warm neutrals, indigo/violet -> ink (the single action colour),
+  teal/emerald/green -> muted sage, amber -> muted ochre, rose/red -> muted clay, blue/sky -> muted blue.
+*/
+@theme {
+  --font-sans: 'Geist', 'Helvetica Neue', system-ui, sans-serif;
+  --font-serif: 'Newsreader', 'Georgia', serif;
+  --font-mono: 'Geist Mono', 'SF Mono', ui-monospace, monospace;
+
+  --color-slate-50: #fbfbfa;
+  --color-slate-100: #f4f3f0;
+  --color-slate-200: #e7e6e2;
+  --color-slate-300: #d6d5d0;
+  --color-slate-400: #a3a29d;
+  --color-slate-500: #787774;
+  --color-slate-600: #5c5b58;
+  --color-slate-700: #3f3e3b;
+  --color-slate-800: #2a2a28;
+  --color-slate-900: #1c1c1b;
+  --color-slate-950: #141413;
+
+  --color-indigo-50: #f4f3f0;
+  --color-indigo-100: #eceae5;
+  --color-indigo-200: #dddbd5;
+  --color-indigo-300: #c4c2bc;
+  --color-indigo-400: #8f8d88;
+  --color-indigo-500: #4a4945;
+  --color-indigo-600: #1c1c1b;
+  --color-indigo-700: #3a3a37;
+  --color-indigo-800: #2a2a28;
+  --color-indigo-900: #1f1f1d;
+  --color-indigo-950: #161615;
+
+  --color-violet-50: var(--color-indigo-50);
+  --color-violet-100: var(--color-indigo-100);
+  --color-violet-200: var(--color-indigo-200);
+  --color-violet-300: var(--color-indigo-300);
+  --color-violet-400: var(--color-indigo-400);
+  --color-violet-500: var(--color-indigo-500);
+  --color-violet-600: var(--color-indigo-600);
+  --color-violet-700: var(--color-indigo-700);
+  --color-violet-800: var(--color-indigo-800);
+  --color-violet-900: var(--color-indigo-900);
+  --color-violet-950: var(--color-indigo-950);
+
+  --color-emerald-50: #edf3ec;
+  --color-emerald-100: #e2ede0;
+  --color-emerald-200: #cfe0cc;
+  --color-emerald-300: #a9c7a4;
+  --color-emerald-400: #7fa878;
+  --color-emerald-500: #5a8a53;
+  --color-emerald-600: #346538;
+  --color-emerald-700: #2d5530;
+  --color-emerald-800: #244426;
+  --color-emerald-900: #1b331d;
+  --color-emerald-950: #132415;
+
+  --color-teal-50: var(--color-emerald-50);
+  --color-teal-100: var(--color-emerald-100);
+  --color-teal-200: var(--color-emerald-200);
+  --color-teal-300: var(--color-emerald-300);
+  --color-teal-400: var(--color-emerald-400);
+  --color-teal-500: var(--color-emerald-500);
+  --color-teal-600: var(--color-emerald-600);
+  --color-teal-700: var(--color-emerald-700);
+  --color-teal-800: var(--color-emerald-800);
+  --color-teal-900: var(--color-emerald-900);
+  --color-teal-950: var(--color-emerald-950);
+  --color-green-50: var(--color-emerald-50);
+  --color-green-100: var(--color-emerald-100);
+  --color-green-500: var(--color-emerald-500);
+  --color-green-600: var(--color-emerald-600);
+  --color-green-700: var(--color-emerald-700);
+
+  --color-amber-50: #fbf3db;
+  --color-amber-100: #f7ebc6;
+  --color-amber-200: #efdca3;
+  --color-amber-300: #e0c27a;
+  --color-amber-400: #c9a253;
+  --color-amber-500: #b08530;
+  --color-amber-600: #956400;
+  --color-amber-700: #7a5200;
+  --color-amber-800: #5e4000;
+  --color-amber-900: #45300a;
+  --color-amber-950: #2e2008;
+  --color-yellow-50: var(--color-amber-50);
+  --color-yellow-500: var(--color-amber-500);
+  --color-orange-500: var(--color-amber-500);
+  --color-orange-600: var(--color-amber-600);
+
+  --color-rose-50: #fdebec;
+  --color-rose-100: #fad9db;
+  --color-rose-200: #f2bfc2;
+  --color-rose-300: #e39a9e;
+  --color-rose-400: #cf7579;
+  --color-rose-500: #b65155;
+  --color-rose-600: #9f2f2d;
+  --color-rose-700: #85282a;
+  --color-rose-800: #6a2123;
+  --color-rose-900: #4f1a1b;
+  --color-rose-950: #331112;
+  --color-red-50: var(--color-rose-50);
+  --color-red-500: var(--color-rose-500);
+  --color-red-600: var(--color-rose-600);
+  --color-red-700: var(--color-rose-700);
+
+  --color-blue-50: #e1f3fe;
+  --color-blue-100: #cfe8f8;
+  --color-blue-200: #b2d6ee;
+  --color-blue-300: #8bbcdd;
+  --color-blue-400: #5f9cc6;
+  --color-blue-500: #3a82b3;
+  --color-blue-600: #1f6c9f;
+  --color-blue-700: #1a5a85;
+  --color-blue-800: #164a6c;
+  --color-blue-900: #12384f;
+  --color-blue-950: #0d2535;
+  --color-sky-500: var(--color-blue-500);
+  --color-cyan-500: var(--color-blue-500);
+
+  --shadow-2xs: 0 0 #0000;
+  --shadow-xs: 0 0 #0000;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.03);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.03);
+  --shadow-md: 0 2px 8px rgb(0 0 0 / 0.04);
+  --shadow-lg: 0 2px 8px rgb(0 0 0 / 0.04);
+  --shadow-xl: 0 8px 24px rgb(0 0 0 / 0.06);
+  --shadow-2xl: 0 12px 40px rgb(0 0 0 / 0.08);
+
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+  --radius-2xl: 10px;
+  --radius-3xl: 12px;
+}
+
+/* In dark mode the ink colour would vanish against the canvas, so actions switch to a muted slate blue. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-indigo-50: #eef2f6;
+    --color-indigo-100: #dfe6ee;
+    --color-indigo-200: #c9d6e2;
+    --color-indigo-300: #b4c6d6;
+    --color-indigo-400: #a9bccd;
+    --color-indigo-500: #7f97ad;
+    --color-indigo-600: #4f6b84;
+    --color-indigo-700: #435d74;
+    --color-indigo-800: #2f3f4e;
+    --color-indigo-900: #222d38;
+    --color-indigo-950: #1a2129;
+  }
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    color: var(--color-slate-900);
+    background-color: var(--color-slate-50);
+    line-height: 1.6;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    body {
+      color: var(--color-slate-100);
+      background-color: var(--color-slate-950);
+    }
+  }
+
+  h1 {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+  }
+
+  /* Lucide draws at 2px; a lighter stroke reads calmer at small sizes. */
+  svg.lucide {
+    stroke-width: 1.75;
+  }
+
+  ::selection {
+    background: var(--color-blue-100);
+    color: var(--color-slate-900);
+  }
+
+  input[type='checkbox'],
+  input[type='range'] {
+    accent-color: var(--color-slate-900);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    input[type='checkbox'],
+    input[type='range'] {
+      accent-color: var(--color-indigo-500);
+    }
+  }
+}
+
+@layer utilities {
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}

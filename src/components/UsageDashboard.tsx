@@ -32,25 +32,25 @@ interface UsageDashboardProps {
 // Distinct, accessible palette for project lines
 const PROJECT_COLORS: Record<string, { stroke: string; bg: string; fill: string; border: string }> = {
   'proj-prostate-clinic-london': {
-    stroke: '#0d9488', // teal-600
+    stroke: '#346538', // sage
     bg: 'bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300',
     fill: 'rgba(13, 148, 136, 0.12)',
     border: 'border-teal-500',
   },
   'proj-seo-guide': {
-    stroke: '#6366f1', // indigo-500
+    stroke: '#1f6c9f', // muted blue
     bg: 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300',
     fill: 'rgba(99, 102, 241, 0.12)',
     border: 'border-indigo-500',
   },
   'proj-thought-leadership': {
-    stroke: '#f59e0b', // amber-500
+    stroke: '#956400', // ochre
     bg: 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300',
     fill: 'rgba(245, 158, 11, 0.12)',
     border: 'border-amber-500',
   },
   'proj-technical-breakdown': {
-    stroke: '#8b5cf6', // violet-500
+    stroke: '#9f2f2d', // clay
     bg: 'bg-violet-50 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300',
     fill: 'rgba(139, 92, 246, 0.12)',
     border: 'border-violet-500',
@@ -58,7 +58,7 @@ const PROJECT_COLORS: Record<string, { stroke: string; bg: string; fill: string;
 };
 
 const DEFAULT_COLOR = {
-  stroke: '#3b82f6', // blue-500
+  stroke: '#1f6c9f', // muted blue
   bg: 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300',
   fill: 'rgba(59, 130, 246, 0.12)',
   border: 'border-blue-500',
@@ -78,11 +78,10 @@ export const UsageDashboard: React.FC<UsageDashboardProps> = ({
   const [hoveredDate, setHoveredDate] = useState<string | null>(null);
   const [dbRecords, setDbRecords] = useState<ProjectUsageRecord[]>([]);
 
-  // Automatically load usage records from Firestore for this user ID & tenant
+  // Automatically load usage records from the database for this user ID & tenant
   useEffect(() => {
-    if (user) {
-      const tenantId = currentTenant?.id || `tenant-${user.uid}`;
-      loadUserUsageRecords(user.uid, tenantId)
+    if (user && currentTenant) {
+      loadUserUsageRecords(user.uid, currentTenant.id)
         .then((recs) => {
           if (recs && recs.length > 0) {
             setDbRecords(recs);
@@ -405,7 +404,7 @@ export const UsageDashboard: React.FC<UsageDashboardProps> = ({
               </span>
             )}
           </div>
-          <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2.5">
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-white tracking-tight flex items-center gap-2.5">
             <BarChart2 className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
             <span>API Usage Dashboard</span>
           </h1>
@@ -461,7 +460,7 @@ export const UsageDashboard: React.FC<UsageDashboardProps> = ({
             </div>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-black text-slate-900 dark:text-white font-mono">
+            <span className="text-2xl font-semibold text-slate-900 dark:text-white font-mono">
               {summaryStats.totalTokens.toLocaleString()}
             </span>
             <span className="text-xs text-slate-400">tokens</span>
@@ -480,7 +479,7 @@ export const UsageDashboard: React.FC<UsageDashboardProps> = ({
             </div>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono">
+            <span className="text-2xl font-semibold text-emerald-600 dark:text-emerald-400 font-mono">
               ${summaryStats.totalCost.toFixed(4)}
             </span>
             <span className="text-xs text-slate-400">USD</span>
@@ -499,7 +498,7 @@ export const UsageDashboard: React.FC<UsageDashboardProps> = ({
             </div>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-black text-slate-900 dark:text-white font-mono">
+            <span className="text-2xl font-semibold text-slate-900 dark:text-white font-mono">
               {selectedProjectFilter === 'all' ? projects.length : 1}
             </span>
             <span className="text-xs text-slate-400">of {projects.length} configured</span>
@@ -518,7 +517,7 @@ export const UsageDashboard: React.FC<UsageDashboardProps> = ({
             </div>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-black text-slate-900 dark:text-white font-mono">
+            <span className="text-2xl font-semibold text-slate-900 dark:text-white font-mono">
               {summaryStats.peakDay.tokens.toLocaleString()}
             </span>
             <span className="text-xs text-slate-400">tokens</span>
@@ -530,7 +529,7 @@ export const UsageDashboard: React.FC<UsageDashboardProps> = ({
       </div>
 
       {/* Main Interactive Line Chart Card */}
-      <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
+      <div className="bg-white dark:bg-slate-900 rounded-3xl p-4 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
         {/* Controls Bar */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
           <div>
@@ -778,7 +777,7 @@ export const UsageDashboard: React.FC<UsageDashboardProps> = ({
                 y1={paddingTop}
                 x2={hoverTooltipData.x}
                 y2={paddingTop + plotHeight}
-                stroke="#6366f1"
+                stroke="#1f6c9f"
                 strokeWidth={1.5}
                 strokeDasharray="3 3"
                 className="pointer-events-none"
