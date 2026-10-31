@@ -12,6 +12,9 @@ import { UsageDashboard } from './components/UsageDashboard';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AuthScreen } from './components/AuthScreen';
 import { TenantSwitcherModal } from './components/TenantSwitcherModal';
+import { GuidelinesModal } from './components/GuidelinesModal';
+import { loadGuidelineProfiles } from './services/guidelines';
+import { GuidelineProfile } from './types/pipeline';
 import {
   loadUserProjects,
   saveAllUserProjects,
@@ -39,7 +42,8 @@ function MainAppContent() {
   const [isTenantModalOpen, setIsTenantModalOpen] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
 
-  const tenantId = currentTenant?.id || (user ? `tenant-${user.uid}` : 'workspace-guest');
+  // Empty until the signed-in user's workspace has loaded; nothing is read or saved before then.
+  const tenantId = currentTenant?.id || '';
 
   // Persistence and sync state
   const [syncStatus, setSyncStatus] = useState<'synced' | 'saving' | 'error' | 'guest'>('synced');
@@ -65,6 +69,18 @@ function MainAppContent() {
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
   const [editingSettingsProject, setEditingSettingsProject] = useState<Project | null>(null);
   const [hasApiKey, setHasApiKey] = useState(false);
+  const [guidelineProfiles, setGuidelineProfiles] = useState<GuidelineProfile[]>([]);
+  const [isGuidelinesOpen, setIsGuidelinesOpen] = useState(false);
+
+  useEffect(() => {
+    if (!user || !tenantId) {
+      setGuidelineProfiles([]);
+      return;
+    }
+    loadGuidelineProfiles(tenantId)
+      .then(setGuidelineProfiles)
+      .catch((err) => console.error('Could not load guideline profiles:', err));
+  }, [user?.uid, tenantId]);
 
   // Reference to track initial load completion for the current user
   const loadedUserIdRef = useRef<string | null>(null);
@@ -80,6 +96,7 @@ function MainAppContent() {
         loadedUserIdRef.current = null;
         return;
       }
+      if (!tenantId) return;
 
       setIsInitialLoading(true);
       setSyncStatus('saving');
@@ -130,7 +147,7 @@ function MainAppContent() {
   // 2. AUTOMATIC SAVE of Projects for User ID (Debounced)
   useEffect(() => {
     // Only auto-save if authenticated and initial load has completed for this user
-    if (!user || isInitialLoading || loadedUserIdRef.current !== user.uid) return;
+    if (!user || !tenantId || isInitialLoading || loadedUserIdRef.current !== user.uid) return;
 
     setSyncStatus('saving');
     const timer = setTimeout(async () => {
@@ -149,7 +166,7 @@ function MainAppContent() {
 
   // 3. AUTOMATIC SAVE of Sessions for User ID (Debounced)
   useEffect(() => {
-    if (!user || isInitialLoading || loadedUserIdRef.current !== user.uid || Object.keys(sessions).length === 0) {
+    if (!user || !tenantId || isInitialLoading || loadedUserIdRef.current !== user.uid || Object.keys(sessions).length === 0) {
       return;
     }
 
@@ -178,7 +195,7 @@ function MainAppContent() {
 
   // 5. AUTOMATIC SAVE of API Usage Records dispatched from generation runs
   useEffect(() => {
-    if (!user) return;
+    if (!user || !tenantId) return;
 
     const handleUsageRecordEvent = async (e: Event) => {
       const record = (e as CustomEvent).detail as ProjectUsageRecord;
@@ -212,6 +229,8 @@ function MainAppContent() {
   }, []);
 
   const activeProject = projects.find((p) => p.id === activeProjectId) || null;
+  const activeGuidelines =
+    guidelineProfiles.find((g) => g.id === activeProject?.guidelineProfileId) || null;
 
   const getOrCreateSession = (projId: string): RunSession => {
     if (sessions[projId]) return sessions[projId];
@@ -267,7 +286,7 @@ function MainAppContent() {
       setActiveProjectId(null);
     }
 
-    if (user) {
+    if (user && tenantId) {
       setSyncStatus('saving');
       try {
         await deleteUserProject(user.uid, tenantId, id);
@@ -293,7 +312,7 @@ function MainAppContent() {
   };
 
   const handleTriggerManualSync = async () => {
-    if (!user) return;
+    if (!user || !tenantId) return;
     setSyncStatus('saving');
     try {
       await saveAllUserProjects(user.uid, tenantId, projects);
@@ -311,13 +330,13 @@ function MainAppContent() {
   // Auth loading state
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center space-y-4">
-        <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-xl shadow-indigo-600/30 animate-pulse">
-          <Sparkles className="w-6 h-6" />
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center space-y-4">
+        <div className="w-9 h-9 rounded-md bg-slate-900 dark:bg-slate-100 text-slate-50 dark:text-slate-900 flex items-center justify-center font-serif text-lg">
+          B
         </div>
-        <div className="flex items-center gap-2 text-xs font-semibold text-slate-400">
-          <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
-          <span>Connecting to Multi-Tenant Workspace...</span>
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          <span>Loading your workspace</span>
         </div>
       </div>
     );
@@ -396,6 +415,7 @@ function MainAppContent() {
               <ExecutionStudio
                 project={activeProject}
                 currentSession={getOrCreateSession(activeProject.id)}
+                guidelines={activeGuidelines}
                 onUpdateSession={handleUpdateSession}
                 onViewFinalBlog={() => setActiveTab('output')}
               />
@@ -405,6 +425,8 @@ function MainAppContent() {
               <FinalBlogView
                 project={activeProject}
                 session={getOrCreateSession(activeProject.id)}
+                guidelines={activeGuidelines}
+                onUpdateSession={handleUpdateSession}
                 onBackToStudio={() => setActiveTab('studio')}
                 onUpdateSessionBlog={(newBlog) => {
                   const currSession = getOrCreateSession(activeProject.id);
@@ -433,6 +455,17 @@ function MainAppContent() {
         isOpen={Boolean(editingSettingsProject)}
         onClose={() => setEditingSettingsProject(null)}
         onSave={handleUpdateProject}
+        guidelineProfiles={guidelineProfiles}
+        canManageGuidelines={Boolean(user && tenantId)}
+        onManageGuidelines={() => setIsGuidelinesOpen(true)}
+      />
+
+      <GuidelinesModal
+        isOpen={isGuidelinesOpen}
+        tenantId={tenantId}
+        profiles={guidelineProfiles}
+        onClose={() => setIsGuidelinesOpen(false)}
+        onProfilesChanged={setGuidelineProfiles}
       />
 
       {/* Multi-Tenant Workspace Switcher Modal */}

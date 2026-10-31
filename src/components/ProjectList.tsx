@@ -34,58 +34,37 @@ export const ProjectList: React.FC<ProjectListProps> = ({
 }) => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      {/* Hero Banner */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white p-8 sm:p-10 border border-slate-800 shadow-xl">
-        <div className="absolute -right-20 -bottom-20 w-80 h-80 rounded-full bg-indigo-500/10 blur-3xl pointer-events-none" />
-        <div className="absolute -left-20 -top-20 w-80 h-80 rounded-full bg-violet-500/10 blur-3xl pointer-events-none" />
-
-        <div className="relative z-10 max-w-3xl space-y-4">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 text-xs font-semibold uppercase tracking-wider">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Multi-Step Process Pipeline Engine</span>
-          </div>
-
-          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-white leading-tight">
-            Craft high-impact blogs through structured AI prompt pipelines.
-          </h1>
-
-          <p className="text-slate-300 text-sm sm:text-base leading-relaxed">
-            Create custom projects, define sequential steps (Angle &rarr; Outline &rarr; Deep Draft &rarr; SEO &rarr; Final Polish), chat interactively at any stage, and deliver ready-to-publish articles.
-          </p>
-
-          <div className="pt-2 flex flex-wrap items-center gap-3">
+      {/* Intro */}
+      <section className="pt-6 sm:pt-10 pb-2 max-w-3xl space-y-4">
+        <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
+          Blog pipelines
+        </p>
+        <h1 className="text-3xl sm:text-4xl lg:text-5xl text-slate-900 dark:text-slate-100">
+          Research, write and check medical blogs in clear, repeatable steps.
+        </h1>
+        <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400 max-w-2xl">
+          Each project is a chain of prompts: angle, outline, draft, review and final polish. Every step can use web
+          research and your client's guidelines, and the finished article gets a QA and reference check.
+        </p>
+        <div className="pt-2 flex flex-wrap items-center gap-2">
+          <button
+            onClick={onNewProject}
+            className="inline-flex items-center gap-2 h-10 px-4 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium active:scale-[0.98] transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            <span>New project</span>
+          </button>
+          {onOpenUsage && (
             <button
-              onClick={onNewProject}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm px-5 py-2.5 rounded-xl shadow-lg shadow-indigo-600/30 transition-all flex items-center gap-2 hover:scale-[1.02] active:scale-95"
+              onClick={onOpenUsage}
+              className="inline-flex items-center gap-2 h-10 px-4 rounded-md border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-sm hover:bg-white dark:hover:bg-slate-900 transition-colors"
             >
-              <Plus className="w-4 h-4" />
-              <span>Create New Project</span>
+              <BarChart2 className="w-4 h-4" />
+              <span>Usage</span>
             </button>
-
-            {onOpenUsage && (
-              <button
-                onClick={onOpenUsage}
-                className="bg-slate-800/80 hover:bg-slate-800 text-slate-200 font-semibold text-sm px-4 py-2.5 rounded-xl border border-slate-700 hover:border-slate-600 transition-all flex items-center gap-2"
-                title="View API Token Usage & Analytics"
-              >
-                <BarChart2 className="w-4 h-4 text-indigo-400" />
-                <span>API Usage</span>
-              </button>
-            )}
-
-            <div className="flex items-center gap-4 text-xs text-slate-400 pl-2">
-              <span className="flex items-center gap-1.5">
-                <Layers className="w-4 h-4 text-indigo-400" />
-                Customizable Prompt Steps
-              </span>
-              <span className="flex items-center gap-1.5">
-                <PlayCircle className="w-4 h-4 text-emerald-400" />
-                Interactive Chat Execution
-              </span>
-            </div>
-          </div>
+          )}
         </div>
-      </div>
+      </section>
 
       {/* Projects Section Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -128,7 +107,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
 
           <button
             onClick={onNewProject}
-            className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm px-6 py-3 rounded-xl shadow-lg shadow-indigo-600/25 transition-all hover:scale-105 active:scale-95"
+            className="inline-flex items-center gap-2 h-10 px-4 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium active:scale-[0.98] transition-colors"
           >
             <Plus className="w-4 h-4" />
             <span>Create Your First Project</span>
@@ -139,16 +118,13 @@ export const ProjectList: React.FC<ProjectListProps> = ({
           {projects.map((project) => (
             <div
               key={project.id}
-              className="group relative flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-indigo-300 dark:hover:border-indigo-600/60 transition-all overflow-hidden"
+              className="group relative flex flex-col bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-md transition-all overflow-hidden"
             >
-              {/* Top decorative stripe */}
-              <div className="h-1.5 w-full bg-gradient-to-r from-indigo-500 via-violet-500 to-indigo-600" />
-
               <div className="p-6 flex-1 flex flex-col justify-between space-y-4">
                 <div>
                   {/* Header & Badges */}
                   <div className="flex items-start justify-between gap-2">
-                    <h3 className="font-bold text-lg text-slate-900 dark:text-white line-clamp-1 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                    <h3 className="font-serif text-xl text-slate-900 dark:text-slate-100 line-clamp-1">
                       {project.name}
                     </h3>
                     <div className="flex items-center space-x-1 shrink-0 text-slate-400">

@@ -131,7 +131,7 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({
               className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:underline mb-2 transition-colors"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              <span>← Back to Home / Projects</span>
+              <span>All projects</span>
             </button>
           )}
           <h1 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -153,7 +153,7 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({
 
           <button
             onClick={onLaunchStudio}
-            className="text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl shadow-sm shadow-indigo-600/30 flex items-center gap-2 transition-all hover:shadow active:scale-95"
+            className="text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl shadow-sm shadow-indigo-600/30 flex items-center gap-2 transition-all hover:shadow active:scale-[0.98]"
           >
             <Play className="w-4 h-4" />
             <span>Start Chat & Generate</span>
@@ -185,7 +185,7 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({
                     value={step.title}
                     onChange={(e) => handleUpdateStepTitle(step.id, e.target.value)}
                     placeholder={`Step ${index + 1} Name`}
-                    className="font-bold text-sm text-slate-900 dark:text-white bg-transparent border-b border-transparent hover:border-slate-300 focus:border-indigo-500 focus:outline-none px-1 py-0.5 max-w-sm truncate"
+                    className="flex-1 min-w-0 font-medium text-sm text-slate-900 dark:text-slate-100 bg-transparent border-b border-transparent hover:border-slate-300 dark:hover:border-slate-700 focus:border-slate-500 focus:outline-none px-1 py-0.5 truncate"
                   />
 
                   {isFinal && (
@@ -277,7 +277,7 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({
                   value={step.promptTemplate}
                   onChange={(e) => handleUpdateStepPrompt(step.id, e.target.value)}
                   placeholder="e.g. Analyze the user's topic and generate 3 compelling hooks and an outline for the blog post."
-                  className="w-full text-xs font-medium px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/60 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed resize-y"
+                  className="w-full text-xs font-medium px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/60 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-600 leading-relaxed resize-y"
                 />
               </div>
             </div>

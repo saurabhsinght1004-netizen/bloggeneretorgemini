@@ -1,5 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { Project, RunSession, StepOutputRecord, ChatMessage, TokenUsage } from '../types/pipeline';
+import React, { useState, useEffect, useRef } from 'react';
+import { Project, RunSession, StepOutputRecord, ChatMessage, TokenUsage, ResearchPack, GuidelineProfile } from '../types/pipeline';
+import { guidelinePayload } from '../services/guidelines';
+import { useAuth } from '../context/AuthContext';
+import { fetchResearch, saveResearchRun } from '../services/research';
 import {
   interpolatePrompt,
   calculateGeminiCost,
@@ -30,11 +33,14 @@ import {
   RefreshCw,
   Coins,
   Zap,
+  Globe,
+  ExternalLink,
 } from 'lucide-react';
 
 interface ExecutionStudioProps {
   project: Project;
   currentSession: RunSession;
+  guidelines: GuidelineProfile | null;
   onUpdateSession: (session: RunSession) => void;
   onViewFinalBlog: () => void;
 }
@@ -42,9 +48,80 @@ interface ExecutionStudioProps {
 export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
   project,
   currentSession,
+  guidelines,
   onUpdateSession,
   onViewFinalBlog,
 }) => {
+  const { user, currentTenant } = useAuth();
+  const [useWebResearch, setUseWebResearch] = useState(true);
+  const [researchStatus, setResearchStatus] = useState<{ state: 'idle' | 'running' | 'failed'; error?: string }>({
+    state: 'idle',
+  });
+
+  // Run handlers spread a render-time copy of currentSession, so research is kept in a ref
+  // and attached to every update rather than relying on that copy.
+  const researchRef = useRef<ResearchPack | undefined>(currentSession.research);
+  useEffect(() => {
+    researchRef.current = currentSession.research;
+  }, [currentSession.id]);
+
+  const updateSession = (session: RunSession) => {
+    onUpdateSession({ ...session, research: researchRef.current });
+  };
+
+  /** Returns the research pack for this topic, running web research if needed. null means it failed. */
+  const prepareResearch = async (topic: string): Promise<ResearchPack | undefined | null> => {
+    if (!useWebResearch) return undefined;
+    const existing = researchRef.current;
+    if (existing && existing.topic === topic.trim()) return existing;
+
+    setResearchStatus({ state: 'running' });
+    try {
+      const pack = await fetchResearch(project, topic.trim(), guidelines?.allowedDomains || []);
+      researchRef.current = pack;
+
+      if (pack.tokenUsage) {
+        const usage = {
+          ...pack.tokenUsage,
+          estimatedCostUsd: calculateGeminiCost(pack.tokenUsage.promptTokens, pack.tokenUsage.candidatesTokens),
+        };
+        setDailyTokens(recordTokenUsage(usage));
+        recordProjectRunUsage({
+          projectId: project.id,
+          projectName: project.name,
+          date: new Date().toISOString().slice(0, 10),
+          timestamp: new Date().toISOString(),
+          promptTokens: usage.promptTokens,
+          candidatesTokens: usage.candidatesTokens,
+          totalTokens: usage.totalTokens,
+          estimatedCostUsd: usage.estimatedCostUsd,
+          sessionTopic: topic,
+          stepsCompleted: 0,
+        });
+      }
+
+      if (user && currentTenant) {
+        saveResearchRun({
+          userId: user.uid,
+          tenantId: currentTenant.id,
+          projectId: project.id,
+          sessionId: currentSession.id,
+          referenceUrls: project.referenceUrls || [],
+          pack,
+        })
+          .then((id) => {
+            if (researchRef.current === pack) researchRef.current = { ...pack, id };
+          })
+          .catch((err) => console.warn('Could not save research run:', err?.message || err));
+      }
+
+      setResearchStatus({ state: 'idle' });
+      return pack;
+    } catch (err: any) {
+      setResearchStatus({ state: 'failed', error: err.message || 'Web research failed.' });
+      return null;
+    }
+  };
   const [inputTopic, setInputTopic] = useState(currentSession.userInput || '');
   const [selectedStepId, setSelectedStepId] = useState<string>(
     project.steps[0]?.id || ''
@@ -109,8 +186,9 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
   const executeStep = async (
     stepIndex: number,
     topic: string,
-    existingOutputs: Record<string, StepOutputRecord>
-  ): Promise<{ output: string; usage?: TokenUsage; error?: string }> => {
+    existingOutputs: Record<string, StepOutputRecord>,
+    research?: ResearchPack
+  ): Promise<{ output: string; usage?: TokenUsage; unverifiedUrls?: string[]; error?: string }> => {
     const step = activeSteps[stepIndex];
     if (!step) return { output: '', error: 'Step not found' };
 
@@ -154,6 +232,14 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
             prompt: compiledPrompt,
             systemInstruction: `You are acting as: ${step.systemRole}. Always output clean, professional content adhering to the instructions.`,
             temperature: step.temperature,
+            guidelines: guidelines ? guidelinePayload(guidelines) : undefined,
+            targetWordCount: project.targetWordCount,
+            research: research && {
+              brief: research.brief,
+              sources: research.sources,
+              styleNotes: research.styleNotes,
+              createdAt: research.createdAt,
+            },
           }),
         });
 
@@ -200,7 +286,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
           stepsCompleted: stepIndex + 1,
         });
 
-        return { output: text, usage };
+        return { output: text, usage, unverifiedUrls: data.unverifiedUrls || [] };
       } catch (err: any) {
         lastError = err.message || 'Execution error';
         if (attempts < 2) {
@@ -221,6 +307,9 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
       return;
     }
 
+    const research = await prepareResearch(inputTopic);
+    if (research === null) return;
+
     const stepIndex = activeSteps.findIndex((s) => s.id === stepId);
     if (stepIndex === -1) return;
     const currentStep = activeSteps[stepIndex];
@@ -238,7 +327,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
       },
     };
 
-    onUpdateSession({
+    updateSession({
       ...currentSession,
       userInput: inputTopic,
       status: 'running',
@@ -246,7 +335,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
     });
 
     try {
-      const result = await executeStep(stepIndex, inputTopic, updatedOutputs);
+      const result = await executeStep(stepIndex, inputTopic, updatedOutputs, research);
 
       const completedOutputs: Record<string, StepOutputRecord> = {
         ...updatedOutputs,
@@ -256,6 +345,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
           status: 'completed' as const,
           completedAt: new Date().toISOString(),
           tokenUsage: result.usage,
+          unverifiedUrls: result.unverifiedUrls,
           error: undefined,
         },
       };
@@ -264,7 +354,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
       const finalBlogContent = completedOutputs[finalStep.id]?.output;
       const allCompleted = activeSteps.every((s) => completedOutputs[s.id]?.status === 'completed');
 
-      onUpdateSession({
+      updateSession({
         ...currentSession,
         userInput: inputTopic,
         status: allCompleted ? 'completed' : 'paused',
@@ -275,7 +365,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
       });
     } catch (err: any) {
       console.error('Single step execution error:', err);
-      onUpdateSession({
+      updateSession({
         ...currentSession,
         status: 'failed',
         stepOutputs: {
@@ -297,6 +387,9 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
       return;
     }
 
+    const research = await prepareResearch(inputTopic);
+    if (research === null) return;
+
     // Find the first step that is not completed
     const resumeIndex = activeSteps.findIndex((s) => {
       const out = currentSession.stepOutputs[s.id];
@@ -310,7 +403,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
 
     let localOutputs = { ...currentSession.stepOutputs };
 
-    onUpdateSession({
+    updateSession({
       ...currentSession,
       userInput: inputTopic,
       status: 'running',
@@ -331,7 +424,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
         error: undefined,
       };
 
-      onUpdateSession({
+      updateSession({
         ...currentSession,
         userInput: inputTopic,
         currentStepIndex: i,
@@ -340,20 +433,21 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
       });
 
       try {
-        const result = await executeStep(i, inputTopic, localOutputs);
+        const result = await executeStep(i, inputTopic, localOutputs, research);
         localOutputs[step.id] = {
           ...localOutputs[step.id],
           output: result.output,
           status: 'completed',
           completedAt: new Date().toISOString(),
           tokenUsage: result.usage,
+          unverifiedUrls: result.unverifiedUrls,
           error: undefined,
         };
 
         const finalStep = activeSteps.find((s) => s.isFinalBlogStep) || activeSteps[activeSteps.length - 1];
         const deliveredBlog = localOutputs[finalStep.id]?.output;
 
-        onUpdateSession({
+        updateSession({
           ...currentSession,
           userInput: inputTopic,
           currentStepIndex: i + 1,
@@ -370,7 +464,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
           status: 'failed',
           error: err.message,
         };
-        onUpdateSession({
+        updateSession({
           ...currentSession,
           status: 'failed',
           stepOutputs: { ...localOutputs },
@@ -386,6 +480,9 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
       alert('Please enter a topic or input notes to start.');
       return;
     }
+
+    const research = await prepareResearch(inputTopic);
+    if (research === null) return;
 
     // Find first uncompleted step or use current index
     let targetIndex = activeSteps.findIndex((s) => currentSession.stepOutputs[s.id]?.status !== 'completed');
@@ -408,7 +505,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
       },
     };
 
-    onUpdateSession({
+    updateSession({
       ...currentSession,
       userInput: inputTopic,
       status: 'running',
@@ -418,7 +515,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
     setSelectedStepId(currentStep.id);
 
     try {
-      const result = await executeStep(targetIndex, inputTopic, updatedOutputs);
+      const result = await executeStep(targetIndex, inputTopic, updatedOutputs, research);
 
       const completedOutputs: Record<string, StepOutputRecord> = {
         ...updatedOutputs,
@@ -428,6 +525,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
           status: 'completed' as const,
           completedAt: new Date().toISOString(),
           tokenUsage: result.usage,
+          unverifiedUrls: result.unverifiedUrls,
           error: undefined,
         },
       };
@@ -439,7 +537,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
       const finalStep = activeSteps.find((s) => s.isFinalBlogStep) || activeSteps[activeSteps.length - 1];
       const finalBlogContent = completedOutputs[finalStep.id]?.output;
 
-      onUpdateSession({
+      updateSession({
         ...currentSession,
         userInput: inputTopic,
         currentStepIndex: nextIndex,
@@ -451,7 +549,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
       });
     } catch (err: any) {
       console.error('Step execution error:', err);
-      onUpdateSession({
+      updateSession({
         ...currentSession,
         status: 'failed',
         stepOutputs: {
@@ -473,6 +571,9 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
       return;
     }
 
+    const research = await prepareResearch(inputTopic);
+    if (research === null) return;
+
     let localOutputs = { ...currentSession.stepOutputs };
     let startIndex = currentSession.currentStepIndex;
 
@@ -482,7 +583,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
       localOutputs = {};
     }
 
-    onUpdateSession({
+    updateSession({
       ...currentSession,
       userInput: inputTopic,
       status: 'running',
@@ -503,7 +604,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
         error: undefined,
       };
 
-      onUpdateSession({
+      updateSession({
         ...currentSession,
         userInput: inputTopic,
         currentStepIndex: i,
@@ -512,20 +613,21 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
       });
 
       try {
-        const result = await executeStep(i, inputTopic, localOutputs);
+        const result = await executeStep(i, inputTopic, localOutputs, research);
         localOutputs[step.id] = {
           ...localOutputs[step.id],
           output: result.output,
           status: 'completed',
           completedAt: new Date().toISOString(),
           tokenUsage: result.usage,
+          unverifiedUrls: result.unverifiedUrls,
           error: undefined,
         };
 
         const finalStep = activeSteps.find((s) => s.isFinalBlogStep) || activeSteps[activeSteps.length - 1];
         const deliveredBlog = localOutputs[finalStep.id]?.output;
 
-        onUpdateSession({
+        updateSession({
           ...currentSession,
           userInput: inputTopic,
           currentStepIndex: i + 1,
@@ -542,7 +644,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
           status: 'failed',
           error: err.message,
         };
-        onUpdateSession({
+        updateSession({
           ...currentSession,
           status: 'failed',
           stepOutputs: { ...localOutputs },
@@ -577,7 +679,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
     };
 
     const newChatList = [...currentSession.chatMessages, userChatMessage];
-    onUpdateSession({
+    updateSession({
       ...currentSession,
       chatMessages: newChatList,
     });
@@ -615,7 +717,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
       // If this was the final blog step, update finalBlog as well
       const isFinal = stepObj?.isFinalBlogStep;
 
-      onUpdateSession({
+      updateSession({
         ...currentSession,
         stepOutputs: updatedOutputs,
         finalBlog: isFinal ? data.updatedContent : currentSession.finalBlog,
@@ -645,7 +747,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
     const stepObj = activeSteps.find((s) => s.id === selectedStepId);
     const isFinal = stepObj?.isFinalBlogStep;
 
-    onUpdateSession({
+    updateSession({
       ...currentSession,
       stepOutputs: updatedOutputs,
       finalBlog: isFinal ? editedText : currentSession.finalBlog,
@@ -657,7 +759,9 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
 
   const handleResetSession = () => {
     if (confirm('Reset this generation run and start fresh?')) {
-      onUpdateSession({
+      researchRef.current = undefined;
+      setResearchStatus({ state: 'idle' });
+      updateSession({
         id: `run-${Date.now()}`,
         projectId: project.id,
         userInput: inputTopic,
@@ -674,16 +778,18 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
 
   const selectedStep = activeSteps.find((s) => s.id === selectedStepId) || activeSteps[0];
   const selectedRecord = currentSession.stepOutputs[selectedStepId];
-  const isRunning = currentSession.status === 'running';
+  const isResearching = researchStatus.state === 'running';
+  const isRunning = currentSession.status === 'running' || isResearching;
+  const research = researchRef.current;
   const isCompleted = currentSession.status === 'completed';
   const hasFailedStep = Object.values(currentSession.stepOutputs).some((o) => o.status === 'failed');
   const hasCompletedAny = Object.values(currentSession.stepOutputs).some((o) => o.status === 'completed');
   const canResume = (hasFailedStep || (hasCompletedAny && !isCompleted)) && !isRunning;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6 sm:space-y-8">
       {/* Input Header Panel */}
-      <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+      <div className="bg-white dark:bg-slate-900 rounded-3xl p-4 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -695,7 +801,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 shrink-0 [&>button]:whitespace-nowrap">
             <button
               onClick={handleResetSession}
               title="Reset Run"
@@ -709,7 +815,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
               <button
                 disabled={isRunning || !inputTopic.trim()}
                 onClick={handleResumePipeline}
-                className="text-xs font-semibold px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white shadow-sm flex items-center gap-1.5 transition-all shadow-amber-500/20 active:scale-95"
+                className="text-xs font-semibold px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white shadow-sm flex items-center gap-1.5 transition-all shadow-amber-500/20 active:scale-[0.98]"
                 title="Resume pipeline execution from where it stopped"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
@@ -735,8 +841,8 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
               onClick={handleRunAllSteps}
               className={`text-xs font-semibold px-4 py-2 rounded-xl text-white shadow-sm flex items-center gap-2 transition-all shadow-indigo-600/30 ${
                 isRunning || !inputTopic.trim()
-                  ? 'bg-indigo-400 cursor-not-allowed'
-                  : 'bg-indigo-600 hover:bg-indigo-700 hover:shadow active:scale-95'
+                  ? 'bg-indigo-600 opacity-40 cursor-not-allowed'
+                  : 'bg-indigo-600 hover:bg-indigo-700 hover:shadow active:scale-[0.98]'
               }`}
             >
               <Play className="w-4 h-4 fill-white" />
@@ -752,7 +858,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
             value={inputTopic}
             onChange={(e) => setInputTopic(e.target.value)}
             placeholder="Type your blog topic, core idea, outline notes, or brief here... (e.g., 'Why Rust and WebAssembly are revolutionizing Cloud Infrastructure in 2026')"
-            className="w-full text-sm px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/90 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed resize-y"
+            className="w-full text-sm px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/90 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-600 leading-relaxed resize-y"
           />
 
           {/* Quick topic suggestion pills */}
@@ -763,11 +869,75 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
                 key={i}
                 type="button"
                 onClick={() => setInputTopic(topic)}
-                className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-600 dark:hover:text-indigo-400 border border-slate-200 dark:border-slate-700 transition-colors"
+                className="text-left text-[11px] px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 hover:text-indigo-600 dark:hover:text-indigo-400 border border-slate-200 dark:border-slate-700 transition-colors"
               >
                 {topic.split(':')[0]}
               </button>
             ))}
+          </div>
+
+          {/* Web Research */}
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={useWebResearch}
+                  disabled={isRunning}
+                  onChange={(e) => setUseWebResearch(e.target.checked)}
+                  className="accent-indigo-600"
+                />
+                <Globe className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Research the web before writing</span>
+              </label>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                {isResearching
+                  ? 'Searching the web and reading sources...'
+                  : research
+                    ? `${research.sources.length} sources found for "${research.topic}"`
+                    : project.referenceUrls?.length
+                      ? `Will also study ${project.referenceUrls.length} reference article${project.referenceUrls.length === 1 ? '' : 's'}`
+                      : 'Add reference articles in project settings to match their style'}
+              </span>
+            </div>
+
+            {researchStatus.state === 'failed' && (
+              <div className="flex items-start gap-2 text-[11px] text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-xl p-3">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span>
+                  {researchStatus.error} Run again to retry, or untick web research to write from the model's own knowledge.
+                </span>
+              </div>
+            )}
+
+            {research && !isResearching && (
+              <details className="text-xs">
+                <summary className="cursor-pointer font-semibold text-indigo-600 dark:text-indigo-400">
+                  View research brief and sources
+                </summary>
+                <div className="mt-3 grid gap-4 lg:grid-cols-5">
+                  <div className="lg:col-span-3 prose prose-slate dark:prose-invert max-w-none max-h-96 overflow-y-auto">
+                    <MarkdownRenderer content={research.brief} />
+                  </div>
+                  <ol className="lg:col-span-2 space-y-1.5 max-h-96 overflow-y-auto">
+                    {research.sources.map((src) => (
+                      <li key={src.id} className="flex gap-2">
+                        <span className="font-mono text-slate-400">[{src.id}]</span>
+                        <a
+                          href={src.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-slate-700 dark:text-slate-300 hover:text-indigo-600 break-all inline-flex gap-1"
+                        >
+                          <span>{src.title || src.domain}</span>
+                          <ExternalLink className="w-3 h-3 shrink-0 mt-0.5" />
+                        </a>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              </details>
+            )}
           </div>
 
           {/* Token Usage & Cost Status Bar */}
@@ -808,10 +978,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
 
             <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
               <span>Model:</span>
-              <span className="font-semibold text-slate-700 dark:text-slate-300">Gemini 3.8 Flash</span>
-              <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/50 text-[10px] font-mono font-bold text-emerald-700 dark:text-emerald-300">
-                Ultra-Low Cost
-              </span>
+              <span className="font-medium text-slate-700 dark:text-slate-300">Gemini 3.8 Flash</span>
             </div>
           </div>
         </div>
@@ -819,31 +986,31 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
 
       {/* Completion Banner */}
       {isCompleted && currentSession.finalBlog && (
-        <div className="rounded-3xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 text-white p-6 shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="rounded-xl border border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-100 p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0">
-              <CheckCircle2 className="w-6 h-6 text-white" />
+            <div className="w-10 h-10 rounded-lg bg-white/70 dark:bg-emerald-900/60 flex items-center justify-center shrink-0">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-300" />
             </div>
             <div>
-              <h2 className="text-lg font-bold">All Pipeline Steps Finished Successfully!</h2>
-              <p className="text-xs text-emerald-100">
-                Your final polished blog post has been synthesized and delivered according to your project pipeline.
+              <h2 className="text-base font-medium">All steps finished</h2>
+              <p className="text-xs text-emerald-700 dark:text-emerald-300">
+                Open the final blog to review it and run the QA check.
               </p>
             </div>
           </div>
 
           <button
             onClick={onViewFinalBlog}
-            className="shrink-0 bg-white text-indigo-700 hover:bg-slate-100 font-bold text-xs px-5 py-3 rounded-xl shadow-lg transition-all flex items-center gap-2 hover:scale-105 active:scale-95"
+            className="shrink-0 h-9 px-4 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium flex items-center gap-2 active:scale-[0.98] transition-colors"
           >
             <BookOpen className="w-4 h-4" />
-            <span>View Delivered Blog &rarr;</span>
+            <span>Open final blog</span>
           </button>
         </div>
       )}
 
       {/* Step Stepper & Execution Progress Bar */}
-      <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+      <div className="bg-white dark:bg-slate-900 rounded-3xl p-4 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             Pipeline Progress
@@ -977,7 +1144,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
                   {isEditingOutput ? (
                     <button
                       onClick={handleSaveDirectEdit}
-                      className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white flex items-center gap-1 hover:bg-emerald-700 transition-colors"
+                      className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-indigo-600 text-white flex items-center gap-1 hover:bg-indigo-700 transition-colors"
                     >
                       <Save className="w-3.5 h-3.5" />
                       <span>Save Edit</span>
@@ -1030,7 +1197,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
                   <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-[11px] space-y-1">
                     <p className="font-semibold">Why did this happen (HTTP 504 Gateway Timeout)?</p>
                     <p>
-                      The server proxy timed out while waiting for the Gemini API call to return. We have added a server-side timeout watchdog, automatic retry, and fallback so your step won't get stuck.
+                      The server proxy timed out while waiting for the Gemini API call to return. Retry the step; if it keeps happening, raise GEMINI_STEP_TIMEOUT_MS or shorten the prompt.
                     </p>
                   </div>
                 ) : null}
@@ -1039,7 +1206,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
                   <button
                     disabled={isRunning}
                     onClick={() => handleRunSingleStep(selectedStep.id)}
-                    className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs shadow-sm flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
+                    className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs shadow-sm flex items-center gap-1.5 transition-all active:scale-[0.98] disabled:opacity-50"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
                     <span>Retry Step {activeSteps.findIndex((s) => s.id === selectedStep.id) + 1}</span>
@@ -1048,7 +1215,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
                   <button
                     disabled={isRunning}
                     onClick={handleResumePipeline}
-                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-sm flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
+                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-sm flex items-center gap-1.5 transition-all active:scale-[0.98] disabled:opacity-50"
                   >
                     <Play className="w-3.5 h-3.5 fill-white" />
                     <span>Resume Full Pipeline</span>
@@ -1057,12 +1224,25 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
               </div>
             ) : selectedRecord?.output ? (
               <div>
+                {Boolean(selectedRecord.unverifiedUrls?.length) && (
+                  <div className="mb-4 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-[11px] space-y-1">
+                    <p className="font-semibold flex items-center gap-1.5">
+                      <AlertCircle className="w-3.5 h-3.5" />
+                      These links were not in the research sources. Check them before publishing:
+                    </p>
+                    <ul className="list-disc pl-5 break-all">
+                      {selectedRecord.unverifiedUrls!.map((u) => (
+                        <li key={u}>{u}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 {isEditingOutput ? (
                   <textarea
                     rows={16}
                     value={editedText}
                     onChange={(e) => setEditedText(e.target.value)}
-                    className="w-full text-xs font-mono p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-900 text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed"
+                    className="w-full text-xs font-mono p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-900 text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-600 leading-relaxed"
                   />
                 ) : (
                   <div className="prose prose-slate dark:prose-invert max-w-none">
@@ -1166,7 +1346,7 @@ export const ExecutionStudio: React.FC<ExecutionStudioProps> = ({
                   ? `Message to refine "${selectedStep.title}"...`
                   : 'Run this step first to chat and refine...'
               }
-              className="flex-1 text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-100 dark:disabled:bg-slate-800/40"
+              className="flex-1 text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-600 disabled:bg-slate-100 dark:disabled:bg-slate-800/40"
             />
 
             <button

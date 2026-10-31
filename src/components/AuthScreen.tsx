@@ -79,30 +79,25 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueAsGuest }) => 
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden font-sans">
-      {/* Background glowing gradients */}
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-indigo-600/20 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-teal-600/15 rounded-full blur-3xl pointer-events-none" />
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
 
       {/* Header Branding */}
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center z-10 px-4">
-        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-tr from-indigo-600 to-teal-500 shadow-xl shadow-indigo-500/25 text-white mb-4">
-          <Sparkles className="w-7 h-7" />
+        <div className="inline-flex items-center justify-center w-10 h-10 rounded-md bg-slate-900 dark:bg-slate-100 text-slate-50 dark:text-slate-900 font-serif text-xl mb-5">
+          B
         </div>
-        <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-          BlogCraft Multi-Tenant Studio
-        </h1>
-        <p className="mt-1.5 text-xs sm:text-sm text-slate-400">
-          Sign in or create your ID to access multi-workspace clinical prompt pipelines and usage tracking.
+        <h1 className="text-3xl sm:text-4xl text-slate-900 dark:text-slate-100">Welcome to BlogCraft</h1>
+        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+          Sign in to your workspace to write, research and check your blogs.
         </p>
       </div>
 
       {/* Card */}
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md z-10 px-4">
-        <div className="bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 sm:p-8 space-y-6">
           {/* Error Message */}
           {(formError || error) && (
-            <div className="p-3.5 rounded-xl bg-rose-950/60 border border-rose-800 text-rose-300 text-xs flex items-start gap-2.5">
+            <div className="p-3.5 rounded-lg bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-start gap-2.5">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{formError || error}</span>
             </div>
@@ -113,7 +108,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueAsGuest }) => 
             type="button"
             onClick={handleGoogleSignIn}
             disabled={isSubmitting || loading}
-            className="w-full py-3 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-900 font-semibold text-xs sm:text-sm shadow-md flex items-center justify-center gap-3 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50"
+            className="w-full h-10 px-4 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-900 dark:text-slate-100 font-medium text-sm flex items-center justify-center gap-3 transition-colors disabled:opacity-50"
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24">
               <path
@@ -138,14 +133,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueAsGuest }) => 
 
           {/* Divider */}
           <div className="relative flex items-center justify-center">
-            <div className="w-full border-t border-slate-800" />
-            <span className="bg-slate-900 px-3 text-[11px] uppercase tracking-wider text-slate-500 font-semibold absolute">
+            <div className="w-full border-t border-slate-200 dark:border-slate-800" />
+            <span className="bg-white dark:bg-slate-900 px-3 text-[11px] uppercase tracking-wider text-slate-400 absolute">
               Or with email
             </span>
           </div>
 
           {/* Mode Switcher Tabs */}
-          <div className="grid grid-cols-2 p-1 bg-slate-950/80 rounded-xl border border-slate-800 text-xs font-semibold">
+          <div className="grid grid-cols-2 p-1 bg-slate-100 dark:bg-slate-950 rounded-lg text-xs font-medium">
             <button
               type="button"
               onClick={() => {
@@ -153,10 +148,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueAsGuest }) => 
                 setFormError(null);
                 clearError();
               }}
-              className={`py-2 rounded-lg transition-all ${
+              className={`py-2 rounded-md transition-colors ${
                 mode === 'signin'
-                  ? 'bg-slate-800 text-white shadow-xs'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
               }`}
             >
               Sign In
@@ -168,13 +163,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueAsGuest }) => 
                 setFormError(null);
                 clearError();
               }}
-              className={`py-2 rounded-lg transition-all ${
+              className={`py-2 rounded-md transition-colors ${
                 mode === 'register'
-                  ? 'bg-slate-800 text-white shadow-xs'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
               }`}
             >
-              Create ID Manually
+              Create account
             </button>
           </div>
 
@@ -184,7 +179,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueAsGuest }) => 
               <>
                 {/* Full Name */}
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-semibold text-slate-300">
+                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">
                     Your Name
                   </label>
                   <div className="relative">
@@ -195,14 +190,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueAsGuest }) => 
                       value={displayName}
                       onChange={(e) => setDisplayName(e.target.value)}
                       placeholder="e.g. Dr. Arthur Smith"
-                      className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-950/70 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="w-full pl-9 pr-3 py-2.5 rounded-md bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-700"
                     />
                   </div>
                 </div>
 
                 {/* Initial Workspace / Clinic Name */}
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-semibold text-slate-300">
+                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">
                     Clinic / Workspace Name (Multi-Tenant)
                   </label>
                   <div className="relative">
@@ -212,7 +207,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueAsGuest }) => 
                       value={workspaceName}
                       onChange={(e) => setWorkspaceName(e.target.value)}
                       placeholder="e.g. Harley Street Prostate Clinic"
-                      className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-950/70 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="w-full pl-9 pr-3 py-2.5 rounded-md bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-700"
                     />
                   </div>
                 </div>
@@ -221,7 +216,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueAsGuest }) => 
 
             {/* Email */}
             <div className="space-y-1.5">
-              <label className="block text-xs font-semibold text-slate-300">
+              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">
                 Email Address
               </label>
               <div className="relative">
@@ -232,14 +227,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueAsGuest }) => 
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="name@clinic.com"
-                  className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-950/70 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full pl-9 pr-3 py-2.5 rounded-md bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-700"
                 />
               </div>
             </div>
 
             {/* Password */}
             <div className="space-y-1.5">
-              <label className="block text-xs font-semibold text-slate-300">
+              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">
                 Password
               </label>
               <div className="relative">
@@ -250,12 +245,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueAsGuest }) => 
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="At least 6 characters"
-                  className="w-full pl-9 pr-10 py-2.5 rounded-xl bg-slate-950/70 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full pl-9 pr-10 py-2.5 rounded-md bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-700"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-3 text-slate-500 hover:text-slate-300 focus:outline-none"
+                  className="absolute right-3 top-3 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 focus:outline-none"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -266,33 +261,22 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueAsGuest }) => 
             <button
               type="submit"
               disabled={isSubmitting || loading}
-              className="w-full mt-2 py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs sm:text-sm shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50"
+              className="w-full mt-2 h-10 px-4 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm flex items-center justify-center gap-2 transition-colors active:scale-[0.98] disabled:opacity-50"
             >
               <span>{mode === 'signin' ? 'Sign In to Workspace' : 'Create ID & Start Workspace'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
 
-          {/* Multi-Tenant Features Badge */}
-          <div className="p-3 rounded-2xl bg-slate-950/60 border border-slate-800/80 text-[11px] text-slate-400 space-y-1.5">
-            <div className="flex items-center gap-1.5 text-slate-300 font-semibold">
-              <ShieldCheck className="w-3.5 h-3.5 text-teal-400" />
-              <span>Multi-Tenant Architecture</span>
-            </div>
-            <p>
-              Your clinical pipelines, generation sessions, and API token usage are completely isolated to your tenant organization.
-            </p>
-          </div>
-
           {/* Guest Mode option */}
           {onContinueAsGuest && (
-            <div className="text-center pt-2 border-t border-slate-800">
+            <div className="text-center pt-4 border-t border-slate-100 dark:border-slate-800">
               <button
                 type="button"
                 onClick={onContinueAsGuest}
-                className="text-xs text-slate-400 hover:text-indigo-400 transition-colors font-medium"
+                className="text-xs text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 transition-colors"
               >
-                Continue as Guest Preview &rarr;
+                Continue without signing in
               </button>
             </div>
           )}

@@ -2,7 +2,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import { Project, RunSession, ProjectUsageRecord } from '../types/pipeline';
 import { createDefaultProjects } from '../utils/pipeline';
-import { filterUserOnlyProjects } from './dbPersistence';
+import { filterUserOnlyProjects } from './projectFilters';
 
 describe('Database Persistence & Multi-Tenant Isolation', () => {
   test('createDefaultProjects provides valid schemas for database serialization', () => {
@@ -24,7 +24,7 @@ describe('Database Persistence & Multi-Tenant Isolation', () => {
     });
   });
 
-  test('Project serialization conforms to Firestore blueprint required fields', () => {
+  test('Project serialization serializes required fields', () => {
     const sampleProject: Project = {
       id: 'proj-clinical-test-123',
       name: 'Clinical Guidance Test',

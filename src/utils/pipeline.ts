@@ -949,16 +949,18 @@ Guidelines:
           id: 'step-4-seo-polish',
           title: 'SEO Enhancement & Meta Data',
           description:
-            'Optimizes headings, crafts meta description, key takeaways box, and social snippet.',
+            'Optimises headings, writes the meta description and adds Key Takeaways at the end.',
           systemRole: 'SEO Optimization Editor',
           promptTemplate: `Review and enhance the blog draft below:
 {{previous_step_output}}
 
-Add the following SEO & presentation assets at the very top:
-1. **Title Options**: 3 punchy, click-worthy titles (under 60 characters).
+Add the following SEO assets at the very top:
+1. **Title Options**: 3 engaging, reader-focused titles (under 60 characters).
 2. **Meta Description**: 155-character summary for Google search.
-3. **Key Takeaways Box**: 4 quick bullet points summarizing the article for skimmers.
-4. Keep the full enhanced draft intact below the metadata.`,
+Then keep the full enhanced draft intact below the metadata, and:
+3. Rewrite any impersonal opening so it speaks directly to the reader's concern using "you".
+4. Make subheadings engaging and easy to follow, ideally the question the reader is asking.
+5. Add a **Key Takeaways** box near the END of the article (before the FAQs), never at the start.`,
           temperature: 0.5,
           isEnabled: true,
         },

@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Project } from '../types/pipeline';
-import { Settings2, Save, X } from 'lucide-react';
+import { Project, GuidelineProfile } from '../types/pipeline';
+import { Settings2, Save, X, BookMarked } from 'lucide-react';
 
 interface ProjectSettingsModalProps {
   project: Project | null;
   isOpen: boolean;
   onClose: () => void;
   onSave: (updated: Project) => void;
+  guidelineProfiles: GuidelineProfile[];
+  canManageGuidelines: boolean;
+  onManageGuidelines: () => void;
 }
 
 export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
@@ -14,6 +17,9 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
   isOpen,
   onClose,
   onSave,
+  guidelineProfiles,
+  canManageGuidelines,
+  onManageGuidelines,
 }) => {
   if (!isOpen || !project) return null;
 
@@ -22,6 +28,8 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
   const [targetAudience, setTargetAudience] = useState(project.targetAudience);
   const [tone, setTone] = useState(project.tone);
   const [targetWordCount, setTargetWordCount] = useState(project.targetWordCount);
+  const [referenceUrls, setReferenceUrls] = useState((project.referenceUrls || []).join('\n'));
+  const [guidelineProfileId, setGuidelineProfileId] = useState(project.guidelineProfileId || '');
 
   useEffect(() => {
     if (project) {
@@ -30,6 +38,8 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
       setTargetAudience(project.targetAudience);
       setTone(project.tone);
       setTargetWordCount(project.targetWordCount);
+      setReferenceUrls((project.referenceUrls || []).join('\n'));
+      setGuidelineProfileId(project.guidelineProfileId || '');
     }
   }, [project]);
 
@@ -42,6 +52,11 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
       targetAudience: targetAudience.trim(),
       tone: tone.trim(),
       targetWordCount: Number(targetWordCount) || 1200,
+      referenceUrls: referenceUrls
+        .split(/\s+/)
+        .map((u) => u.trim())
+        .filter((u) => /^https?:\/\/\S+$/i.test(u)),
+      guidelineProfileId: guidelineProfileId || null,
       updatedAt: new Date().toISOString(),
     });
     onClose();
@@ -76,7 +91,7 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full text-xs font-medium px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full text-xs font-medium px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-600"
             />
           </div>
 
@@ -88,7 +103,7 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
               type="text"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className="w-full text-xs font-medium px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full text-xs font-medium px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-600"
             />
           </div>
 
@@ -101,7 +116,7 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
                 type="text"
                 value={targetAudience}
                 onChange={(e) => setTargetAudience(e.target.value)}
-                className="w-full text-xs font-medium px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full text-xs font-medium px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-600"
               />
             </div>
 
@@ -113,7 +128,7 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
                 type="text"
                 value={tone}
                 onChange={(e) => setTone(e.target.value)}
-                className="w-full text-xs font-medium px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full text-xs font-medium px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-600"
               />
             </div>
           </div>
@@ -131,6 +146,55 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({
               onChange={(e) => setTargetWordCount(parseInt(e.target.value, 10))}
               className="w-full accent-indigo-600"
             />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              Client Guidelines
+            </label>
+            <div className="flex gap-2">
+              <select
+                value={guidelineProfileId}
+                onChange={(e) => setGuidelineProfileId(e.target.value)}
+                className="flex-1 text-xs font-medium px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-600"
+              >
+                <option value="">None (pipeline prompts only)</option>
+                {guidelineProfiles.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+              </select>
+              {canManageGuidelines && (
+                <button
+                  type="button"
+                  onClick={onManageGuidelines}
+                  className="text-xs font-semibold px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5"
+                >
+                  <BookMarked className="w-3.5 h-3.5" />
+                  <span>Manage</span>
+                </button>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+              The client's writing, reference and QA rules are added to every step and used for the QA review.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              Reference Articles
+            </label>
+            <textarea
+              rows={3}
+              value={referenceUrls}
+              onChange={(e) => setReferenceUrls(e.target.value)}
+              placeholder={'https://www.example.com/blog/well-written-article\nOne URL per line'}
+              className="w-full text-xs font-mono px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-600"
+            />
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+              Human-written posts whose structure and voice you want to match. They are read during web research; their text is never copied.
+            </p>
           </div>
 
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Project, RunSession } from '../types/pipeline';
+import { GuidelineProfile, Project, RunSession } from '../types/pipeline';
+import { QaReviewPanel } from './QaReviewPanel';
 import {
   calculateBlogMetrics,
   generateMedicalHtmlDocument,
@@ -32,6 +33,8 @@ import {
 interface FinalBlogViewProps {
   project: Project;
   session: RunSession;
+  guidelines: GuidelineProfile | null;
+  onUpdateSession: (session: RunSession) => void;
   onBackToStudio: () => void;
   onUpdateSessionBlog: (newBlogContent: string) => void;
 }
@@ -39,6 +42,8 @@ interface FinalBlogViewProps {
 export const FinalBlogView: React.FC<FinalBlogViewProps> = ({
   project,
   session,
+  guidelines,
+  onUpdateSession,
   onBackToStudio,
   onUpdateSessionBlog,
 }) => {
@@ -200,7 +205,7 @@ export const FinalBlogView: React.FC<FinalBlogViewProps> = ({
             <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
               Word Count
             </span>
-            <span className="text-lg font-black text-slate-900 dark:text-white font-mono">
+            <span className="text-lg font-semibold text-slate-900 dark:text-white font-mono">
               {metrics.wordCount.toLocaleString()}
             </span>
           </div>
@@ -214,7 +219,7 @@ export const FinalBlogView: React.FC<FinalBlogViewProps> = ({
             <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
               Read Time
             </span>
-            <span className="text-lg font-black text-slate-900 dark:text-white font-mono">
+            <span className="text-lg font-semibold text-slate-900 dark:text-white font-mono">
               {metrics.readingTimeMinutes} min
             </span>
           </div>
@@ -228,7 +233,7 @@ export const FinalBlogView: React.FC<FinalBlogViewProps> = ({
             <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
               Headings
             </span>
-            <span className="text-lg font-black text-slate-900 dark:text-white font-mono">
+            <span className="text-lg font-semibold text-slate-900 dark:text-white font-mono">
               {metrics.headingCount}
             </span>
           </div>
@@ -242,7 +247,7 @@ export const FinalBlogView: React.FC<FinalBlogViewProps> = ({
             <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
               Tokens Used
             </span>
-            <span className="text-lg font-black text-slate-900 dark:text-white font-mono">
+            <span className="text-lg font-semibold text-slate-900 dark:text-white font-mono">
               {(
                 session.totalTokens?.totalTokens ||
                 Object.values(session.stepOutputs || {}).reduce((acc, curr) => {
@@ -265,7 +270,7 @@ export const FinalBlogView: React.FC<FinalBlogViewProps> = ({
             <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
               Est. API Cost
             </span>
-            <span className="text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono">
+            <span className="text-lg font-semibold text-emerald-600 dark:text-emerald-400 font-mono">
               ${(
                 session.totalTokens?.estimatedCostUsd || 0.0028
               ).toFixed(4)}
@@ -274,15 +279,13 @@ export const FinalBlogView: React.FC<FinalBlogViewProps> = ({
         </div>
       </div>
 
-      {/* Constraints & Clinical Format Badge */}
-      <div className="p-3.5 rounded-2xl bg-teal-50/70 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-800 flex items-center justify-between gap-3 text-xs text-teal-900 dark:text-teal-200">
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="w-4 h-4 text-teal-600 shrink-0" />
-          <span>
-            <strong>Prostate Clinic London Clinical Standard:</strong> Formatted with clinical tables, Research Insights, UK Guidance Notes, Myth vs Fact, and FAQs. Strictly text and clinical structure — <strong>zero image placeholders</strong>.
-          </span>
-        </div>
-      </div>
+      <QaReviewPanel
+        project={project}
+        session={session}
+        article={editableBlog}
+        guidelines={guidelines}
+        onUpdateSession={onUpdateSession}
+      />
 
       {/* Main Delivered Blog Card */}
       <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
@@ -348,7 +351,7 @@ export const FinalBlogView: React.FC<FinalBlogViewProps> = ({
             <div className="relative">
               <button
                 onClick={() => setIsDownloadDropdownOpen((prev) => !prev)}
-                className="text-xs font-semibold px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white shadow-sm shadow-teal-600/30 flex items-center gap-1.5 transition-all hover:shadow active:scale-95"
+                className="text-xs font-semibold px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm shadow-teal-600/30 flex items-center gap-1.5 transition-all hover:shadow active:scale-[0.98]"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Download Blog Formats</span>
@@ -486,7 +489,7 @@ export const FinalBlogView: React.FC<FinalBlogViewProps> = ({
                     <span>You can edit the markdown text below and click save.</span>
                     <button
                       onClick={handleSaveEdit}
-                      className="px-3.5 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold shadow-xs transition-colors"
+                      className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-xs transition-colors"
                     >
                       Save Changes
                     </button>
@@ -495,7 +498,7 @@ export const FinalBlogView: React.FC<FinalBlogViewProps> = ({
                     rows={24}
                     value={editableBlog}
                     onChange={(e) => setEditableBlog(e.target.value)}
-                    className="w-full text-xs font-mono p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-900 text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500 leading-relaxed"
+                    className="w-full text-xs font-mono p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-900 text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-600 leading-relaxed"
                   />
                 </div>
               )}
@@ -506,7 +509,7 @@ export const FinalBlogView: React.FC<FinalBlogViewProps> = ({
                     <span>Generated standalone clinical HTML code (ready to paste into CMS or publish).</span>
                     <button
                       onClick={() => handleCopy('html')}
-                      className="px-3.5 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold shadow-xs transition-colors"
+                      className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-xs transition-colors"
                     >
                       Copy Complete HTML
                     </button>
